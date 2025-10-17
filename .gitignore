@@ -1,43 +1,68 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# dependencies
+# Diagnostic reports (https://nodejs.org/api/report.html)
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage
+coverage
+*.lcov
+
+# Dependency directories
 node_modules/
 
 # Expo
 .expo/
-dist/
+.expo-shared/
 web-build/
-expo-env.d.ts
+dist/
 
-# Native
-.kotlin/
-*.orig.*
+# React Native / iOS
+ios/Pods/
+ios/build/
+ios/DerivedData/
+*.xcuserdatad
+*.xcscmblueprint
+*.xcworkspace/xcuserdata
+
+# React Native / Android
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+*.keystore
 *.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
 
-# Metro
-.metro-health-check*
+# TypeScript
+*.tsbuildinfo
 
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
+# Env files
+.env
+.env.*
+!*.example
+!*.example.*
 
 # macOS
 .DS_Store
-*.pem
 
-# local env files
-.env*.local
+# Editor
+.vscode/
+*.swp
 
-# typescript
-*.tsbuildinfo
+# Packagers
+*.expo
 
-app-example
-
-# generated native folders
-/ios
-/android
+# Misc
+*.orig
