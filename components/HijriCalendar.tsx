@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform, Dimensions } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { useTheme } from '@/contexts/ThemeContext';
-import { Colors } from '@/constants/theme';
+import { Colors, Fonts } from '@/constants/theme';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 
 interface HijriDate {
@@ -37,6 +37,10 @@ interface CalendarDay {
   events: IslamicEvent[];
   gregorianDate: Date;
 }
+
+const { width } = Dimensions.get('window');
+const IS_IPAD = Platform.OS === 'ios' ? Boolean((Platform as any).isPad) : width >= 768;
+const IS_SMALL_PHONE = width < 360;
 
 const HijriCalendar = () => {
   const { theme } = useTheme();
@@ -415,7 +419,7 @@ const HijriCalendar = () => {
             <View key={index} style={[styles.listEventItem, { borderLeftColor: colors.tint }]}>
               <View style={styles.listEventContent}>
                 <View style={styles.listEventHeader}>
-                  <IconSymbol name={event.icon as any} size={18} color={colors.tint} />
+                  <IconSymbol name={event.icon as any} size={IS_IPAD ? 26 : 18} color={colors.tint} />
                   <Text style={[styles.listEventName, { color: colors.text }]}>
                     {event.name}
                   </Text>
@@ -627,26 +631,8 @@ const HijriCalendar = () => {
   };
 
   useEffect(() => {
-    // Configure notification behavior
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: false,
-      }),
-    });
-
-    // Set up Android notification channel
-    if (Platform.OS === 'android') {
-      Notifications.setNotificationChannelAsync('default', {
-        name: 'default',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#FF231F7C',
-      }).catch(error => {
-        console.error('Error setting up notification channel:', error);
-      });
-    }
+    // Note: Notification handler and channels are managed by PrayerNotificationService
+    // Don't override them here to avoid conflicts
 
     // Fetch today's Hijri date from API
     const loadHijriDate = async () => {
@@ -1054,8 +1040,9 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   listViewTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: IS_IPAD ? 36 : 20,
+    fontFamily: Fonts.secondary,
+    fontWeight: '900',
     marginBottom: 20,
     textAlign: 'center',
     paddingVertical: 10,
@@ -1083,8 +1070,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   listEventName: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: IS_IPAD ? 30 : 16,
+    fontFamily: Fonts.secondary,
+    fontWeight: '700',
     marginLeft: 10,
     flex: 1,
   },
@@ -1095,17 +1083,17 @@ const styles = StyleSheet.create({
   },
   daysUntilText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: IS_IPAD ? 16 : 12,
     fontWeight: 'bold',
   },
   listEventDate: {
-    fontSize: 14,
+    fontSize: IS_IPAD ? 24 : 14,
     marginBottom: 6,
     fontWeight: '500',
   },
   listEventDescription: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: IS_IPAD ? 24 : 14,
+    lineHeight: IS_IPAD ? 34 : 20,
     marginBottom: 8,
   },
   recommendationBox: {
@@ -1115,9 +1103,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   recommendationText: {
-    fontSize: 13,
+    fontSize: IS_IPAD ? 20 : 13,
+    fontFamily: Fonts.secondary,
     fontStyle: 'italic',
-    lineHeight: 18,
+    lineHeight: IS_IPAD ? 30 : 18,
   },
   
   

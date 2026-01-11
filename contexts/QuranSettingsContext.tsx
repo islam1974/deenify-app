@@ -37,7 +37,6 @@ interface QuranSettings {
   showArabic: boolean;
   showTranslation: boolean;
   autoPlay: boolean;
-  playTranslation: boolean; // New setting for translation playback
   enableTajweed: boolean; // New setting for Tajweed color coding
   bookmarks: string[];
   selectedReciter: Reciter;
@@ -52,7 +51,6 @@ interface QuranSettingsContextType {
   toggleArabic: () => void;
   toggleTranslation: () => void;
   toggleAutoPlay: () => void;
-  togglePlayTranslation: () => void; // New method for translation playback
   toggleTajweed: () => void; // New method for Tajweed toggle
   addBookmark: (verseId: string) => void;
   removeBookmark: (verseId: string) => void;
@@ -71,7 +69,6 @@ const defaultSettings: QuranSettings = {
   showArabic: true,
   showTranslation: true,
   autoPlay: false,
-  playTranslation: false, // Default to false
   enableTajweed: true, // Default to true for Tajweed coloring
   bookmarks: [],
   selectedReciter: 'alafasy',
@@ -103,10 +100,9 @@ export function QuranSettingsProvider({ children }: { children: React.ReactNode 
       if (storedSettings) {
         const parsedSettings = JSON.parse(storedSettings);
         console.log(`✅ Loaded Quran settings:`, parsedSettings);
-        console.log(`🔊 playTranslation value from storage: ${parsedSettings.playTranslation}`);
         setSettings({ ...defaultSettings, ...parsedSettings });
       } else {
-        console.log(`⚠️ No stored Quran settings found, using defaults (playTranslation: ${defaultSettings.playTranslation})`);
+        console.log(`⚠️ No stored Quran settings found, using defaults`);
       }
     } catch (error) {
       console.error('❌ Error loading Quran settings:', error);
@@ -115,7 +111,7 @@ export function QuranSettingsProvider({ children }: { children: React.ReactNode 
 
   const saveSettings = async () => {
     try {
-      console.log(`💾 Saving Quran settings - playTranslation: ${settings.playTranslation}`);
+      console.log(`💾 Saving Quran settings`);
       await AsyncStorage.setItem('quranSettings', JSON.stringify(settings));
       console.log(`✅ Settings saved successfully`);
     } catch (error) {
@@ -141,14 +137,6 @@ export function QuranSettingsProvider({ children }: { children: React.ReactNode 
 
   const toggleAutoPlay = () => {
     setSettings(prev => ({ ...prev, autoPlay: !prev.autoPlay }));
-  };
-
-  const togglePlayTranslation = () => {
-    setSettings(prev => {
-      const newValue = !prev.playTranslation;
-      console.log(`🔊 togglePlayTranslation: ${prev.playTranslation} → ${newValue}`);
-      return { ...prev, playTranslation: newValue };
-    });
   };
 
   const toggleTajweed = () => {
@@ -458,36 +446,36 @@ export function QuranSettingsProvider({ children }: { children: React.ReactNode 
   const getFontOptions = (): QuranFontOption[] => [
     {
       id: 'kfgqpc_uthmani',
-      name: 'KFGQPC Uthmanic Script HAFS',
-      description: 'Official Madinah Mushaf font - Authentic traditional style with proper diacritics and spacing',
+      name: 'Uthmanic Hafs',
+      description: 'Official Madinah Mushaf - Used in the King Fahd Complex printing',
       fontFamily: 'NotoNaskhArabic-Regular',
       apiCode: 'quran-uthmani'
     },
     {
       id: 'amiri_quran',
-      name: 'Amiri Quran',
-      description: 'Classic calligraphy style - Elegant traditional Arabic script with excellent readability',
+      name: 'Amiri',
+      description: 'Traditional Naskh style - Classic Arabic calligraphy',
       fontFamily: 'Amiri-Regular',
       apiCode: 'quran-simple'
     },
     {
       id: 'scheherazade',
-      name: 'Scheherazade New',
-      description: 'Great Unicode coverage - Comprehensive Arabic text support with clear typography',
+      name: 'Scheherazade',
+      description: 'Modern Naskh style - Clear and easy to read',
       fontFamily: 'ScheherazadeNew-Regular',
       apiCode: 'quran-uthmani'
     },
     {
       id: 'me_quran',
-      name: 'MeQuran',
-      description: 'Indo-Pak style - Popular in South Asia with distinctive character shapes and spacing',
+      name: 'Indo-Pak Nastaliq',
+      description: 'Traditional Indo-Pak style - Popular in South Asia',
       fontFamily: 'NotoSansArabic-Regular',
       apiCode: 'quran-simple'
     },
     {
       id: 'vazeh_quran',
-      name: 'Vazeh Quran',
-      description: 'Modern readability - Clean contemporary design optimized for digital reading',
+      name: 'Simplified Arabic',
+      description: 'Modern simplified style - Optimized for digital screens',
       fontFamily: 'Amiri-Bold',
       apiCode: 'quran-simple'
     }
@@ -500,7 +488,6 @@ export function QuranSettingsProvider({ children }: { children: React.ReactNode 
     toggleArabic,
     toggleTranslation,
     toggleAutoPlay,
-    togglePlayTranslation,
     toggleTajweed,
     addBookmark,
     removeBookmark,

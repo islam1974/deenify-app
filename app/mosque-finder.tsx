@@ -122,7 +122,7 @@ export default function MosqueFinderScreen() {
       // Try each server until one works
       for (const overpassUrl of overpassUrls) {
         try {
-          console.log(`Trying Overpass API: ${overpassUrl}`);
+          console.log(`🔍 Trying Overpass API: ${overpassUrl}`);
           
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
@@ -138,22 +138,27 @@ export default function MosqueFinderScreen() {
 
           clearTimeout(timeoutId);
 
+          console.log(`📡 Response status: ${response.status}`);
+
           if (!response.ok) {
             throw new Error(`Server responded with status: ${response.status}`);
           }
 
           data = await response.json();
-          console.log('Successfully fetched mosques:', data.elements?.length || 0);
+          console.log('✅ Successfully fetched mosques:', data.elements?.length || 0);
           break; // Success, exit loop
         } catch (err: any) {
-          console.error(`Failed with ${overpassUrl}:`, err.message);
+          console.error(`❌ Failed with ${overpassUrl}:`, err.message);
           lastError = err;
           // Continue to next server
+          await new Promise(resolve => setTimeout(resolve, 500)); // Small delay between attempts
         }
       }
 
       if (!data) {
-        throw new Error(lastError?.message || 'All API servers failed');
+        const errorDetails = lastError?.message || 'All API servers failed';
+        console.error('❌ Final error:', errorDetails);
+        throw new Error(`Unable to fetch mosques. ${errorDetails}. Please check your internet connection.`);
       }
 
       if (!data.elements || data.elements.length === 0) {

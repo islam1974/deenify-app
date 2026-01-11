@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, TextInput, Modal, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, TextInput, Modal, Animated, Platform, FlatList } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -8,9 +8,18 @@ import { Colors, Fonts } from '@/constants/theme';
 import { useTheme } from '@/contexts/ThemeContext';
 import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { OdometerCounter } from '@/components/OdometerCounter';
 
-const { width } = Dimensions.get('window');
-const CARD_WIDTH = width - 60;
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const IS_SMALL_PHONE = SCREEN_WIDTH < 400;
+const IS_IPAD = Platform.OS === 'ios' ? Boolean((Platform as any).isPad) : SCREEN_WIDTH >= 768;
+const CARD_SPACING = IS_IPAD ? 32 : 16;
+const PHONE_SIDE_PADDING = 8;
+const PHONE_CARD_WIDTH = Math.max(SCREEN_WIDTH * 0.82, SCREEN_WIDTH - 140);
+const CARD_WIDTH = IS_IPAD
+  ? Math.min(SCREEN_WIDTH - 160, 760)
+  : PHONE_CARD_WIDTH;
+const SIDE_SPACING = IS_IPAD ? 60 : PHONE_SIDE_PADDING;
 
 interface DhikrItem {
   arabic: string;
@@ -73,6 +82,7 @@ export default function TasbihScreen() {
   const [selectedTarget, setSelectedTarget] = useState<number>(33);
   const [showSuccessAnimation, setShowSuccessAnimation] = useState(false);
   const scrollViewRef = useRef<ScrollView>(null);
+  const flatListRef = useRef<FlatList>(null);
   
   const successScale = useRef(new Animated.Value(0)).current;
   const successOpacity = useRef(new Animated.Value(0)).current;
@@ -87,6 +97,7 @@ export default function TasbihScreen() {
   
   const currentDhikr = popularDhikr[selectedDhikrIndex];
   const target = selectedTarget;
+  const odometerDigits = Math.max(1, Math.max(String(count).length, String(target).length));
 
   // Load saved progress on mount
   useEffect(() => {
@@ -103,6 +114,7 @@ export default function TasbihScreen() {
       const savedData = await AsyncStorage.getItem('tasbih_progress');
       if (savedData) {
         const { count: savedCount, dhikrIndex, target, custom } = JSON.parse(savedData);
+        // Load the count so users can continue from where they left off
         setCount(savedCount || 0);
         setSelectedDhikrIndex(dhikrIndex || 0);
         setSelectedTarget(target || 33);
@@ -211,6 +223,11 @@ export default function TasbihScreen() {
       // Success haptic when reaching target
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       triggerSuccessAnimation();
+      
+      // Reset counter after a short delay to allow animation to start
+      setTimeout(() => {
+        setCount(0);
+      }, 300);
     } else {
       // Light haptic on each tap
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -220,21 +237,26 @@ export default function TasbihScreen() {
   const handleReset = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setCount(0);
+    // Count will be saved automatically by the useEffect
   };
 
   const handleScroll = (event: any) => {
     const offsetX = event.nativeEvent.contentOffset.x;
-    const index = Math.round(offsetX / (CARD_WIDTH + 20));
-    if (index !== selectedDhikrIndex) {
+    // Account for ListHeaderComponent spacing
+    const adjustedOffset = offsetX - SIDE_SPACING;
+    const interval = CARD_WIDTH + (IS_IPAD ? 0 : 20);
+    const scrollIndex = Math.round(adjustedOffset / interval);
+    const index = Math.max(0, Math.min(scrollIndex, popularDhikr.length - 1));
+    if (index !== selectedDhikrIndex && index >= 0 && index < popularDhikr.length) {
       setSelectedDhikrIndex(index);
-      setCount(0); // Reset count when changing dhikr
+      // Don't reset count - user can continue from where they left off
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
   };
 
   const handleTargetSelect = (target: number) => {
     setSelectedTarget(target);
-    setCount(0);
+    // Don't reset count - user can continue from where they left off
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
@@ -243,7 +265,7 @@ export default function TasbihScreen() {
     if (value && value > 0) {
       setCustomTarget(value);
       setSelectedTarget(value);
-      setCount(0);
+      // Don't reset count - user can continue from where they left off
       setShowCustomModal(false);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
@@ -262,7 +284,7 @@ export default function TasbihScreen() {
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <IconSymbol name="chevron.left" size={28} color="#2C3E50" />
+          <IconSymbol name="chevron.left" size={IS_IPAD ? 34 : 28} color="#2C3E50" />
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
@@ -273,32 +295,85 @@ export default function TasbihScreen() {
 
       {/* Dhikr Carousel */}
       <View style={styles.carouselWrapper}>
-        <ScrollView
-          ref={scrollViewRef}
+          <FlatList
+          ref={flatListRef}
+          data={popularDhikr}
+          renderItem={({ item, index }) => {
+            const isLongDhikr =
+              item.transliteration.length > 35 ||
+              item.translation.length > 55 ||
+              item.arabic.length > 28;
+
+            return (
+            <LinearGradient
+              colors={index === selectedDhikrIndex ? ['#024223', '#024223'] : ['#000000', '#000000']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[
+                styles.dhikrCard,
+                { width: CARD_WIDTH },
+                index === selectedDhikrIndex && styles.selectedCard,
+                isLongDhikr && styles.longDhikrCard,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.dhikrArabic,
+                  isLongDhikr && styles.longDhikrArabic,
+                  index === selectedDhikrIndex && { color: '#FFFFFF', fontWeight: '900' },
+                ]}
+              >
+                {item.arabic}
+              </Text>
+              <Text
+                style={[
+                  styles.dhikrTransliteration,
+                  isLongDhikr && styles.longDhikrTransliteration,
+                  index === selectedDhikrIndex && { color: '#FFFFFF', fontWeight: '900' },
+                ]}
+              >
+                {item.transliteration}
+              </Text>
+              <Text
+                style={[
+                  styles.dhikrTranslation,
+                  isLongDhikr && styles.longDhikrTranslation,
+                  index === selectedDhikrIndex && { color: '#FFFFFF', fontWeight: '700' },
+                ]}
+              >
+                {item.translation}
+              </Text>
+            </LinearGradient>
+            );
+          }}
+          keyExtractor={(item, index) => `dhikr-${index}`}
           horizontal
-          pagingEnabled={false}
           showsHorizontalScrollIndicator={false}
           snapToInterval={CARD_WIDTH + 20}
           decelerationRate="fast"
-          contentContainerStyle={styles.carouselContent}
+          contentContainerStyle={[
+            styles.carouselContent,
+            { paddingHorizontal: SIDE_SPACING },
+          ]}
           onMomentumScrollEnd={handleScroll}
           style={styles.carousel}
-        >
-        {popularDhikr.map((dhikr, index) => (
-          <View
-            key={index}
-            style={[
-              styles.dhikrCard,
-              { width: CARD_WIDTH },
-              index === selectedDhikrIndex && styles.selectedCard,
-            ]}
-          >
-            <Text style={styles.dhikrArabic}>{dhikr.arabic}</Text>
-            <Text style={styles.dhikrTransliteration}>{dhikr.transliteration}</Text>
-            <Text style={styles.dhikrTranslation}>{dhikr.translation}</Text>
-          </View>
-        ))}
-        </ScrollView>
+          scrollEnabled={true}
+          nestedScrollEnabled={Platform.OS === 'android'}
+          bounces={Platform.OS === 'ios'}
+          pagingEnabled={false}
+          removeClippedSubviews={false}
+          getItemLayout={(data, index) => ({
+            length: CARD_WIDTH + CARD_SPACING,
+            offset: (CARD_WIDTH + CARD_SPACING) * index,
+            index,
+          })}
+          snapToAlignment="center"
+          snapToInterval={CARD_WIDTH + CARD_SPACING}
+          snapToAlignment="start"
+          ItemSeparatorComponent={() => <View style={{ width: CARD_SPACING }} />}
+          ListHeaderComponent={<View style={{ width: SIDE_SPACING }} />}
+          ListFooterComponent={<View style={{ width: SIDE_SPACING }} />}
+        />
       </View>
 
       {/* Indicator Dots */}
@@ -403,17 +478,27 @@ export default function TasbihScreen() {
 
       {/* Counter Section */}
       <View style={[styles.counterContainer, { paddingBottom: insets.bottom + 20 }]}>
+        <OdometerCounter 
+          key={`odometer-${selectedDhikrIndex}`}
+          value={count} 
+          digitCount={odometerDigits}
+          fontSize={IS_IPAD ? 72 : IS_SMALL_PHONE ? 36 : 56}
+          textColor="#FFD700"
+        />
         <TouchableOpacity
-          style={[styles.counterButton, { backgroundColor: '#000000' }]}
+          style={styles.counterButton}
           onPress={handlePress}
           activeOpacity={0.8}
         >
-          <Text style={styles.counterText}>{count}</Text>
+          <LinearGradient
+            colors={['#4ECDC4', '#45B7D1']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.tapButton}
+          >
+            <Text style={styles.tapHintText}>TAP</Text>
+          </LinearGradient>
         </TouchableOpacity>
-        
-        <Text style={[styles.progressText, { color: colors.text }]}>
-          {count} / {target}
-        </Text>
 
         <TouchableOpacity
           style={[styles.resetButton, { borderColor: colors.border }]}
@@ -478,86 +563,95 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#1a1a1a',
+    width: '100%',
   },
   headerGradient: {
-    paddingBottom: 3,
-    paddingHorizontal: 15,
+    paddingBottom: IS_IPAD ? 12 : 3,
+    paddingHorizontal: IS_IPAD ? 40 : 15,
   },
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 2,
+    marginBottom: IS_IPAD ? 10 : 2,
   },
   backText: {
-    fontSize: 16,
+    fontSize: IS_IPAD ? 20 : 16,
     fontWeight: '600',
     color: '#2C3E50',
-    marginLeft: 5,
+    marginLeft: IS_IPAD ? 8 : 5,
   },
   headerTitleContainer: {
     alignItems: 'center',
-    marginTop: 0,
+    marginTop: IS_IPAD ? 6 : 0,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2C3E50',
+    fontSize: IS_IPAD ? 38 : 24,
+    fontWeight: '900',
+    fontFamily: Fonts.secondary,
+    color: '#000000',
     marginBottom: 0,
   },
   headerSubtitle: {
-    fontSize: 14,
+    fontSize: IS_IPAD ? 20 : 14,
     fontWeight: '900',
     color: '#34495E',
     opacity: 0.8,
     fontFamily: Fonts.primary,
   },
   carouselWrapper: {
-    marginTop: 20,
+    marginTop: IS_SMALL_PHONE ? 2 : IS_IPAD ? 30 : 20,
+    height: IS_SMALL_PHONE ? 200 : IS_IPAD ? 320 : 260,
   },
   carousel: {
-    maxHeight: 260,
+    height: IS_SMALL_PHONE ? 200 : IS_IPAD ? 320 : 260,
+    flexGrow: 0,
+    flexShrink: 0,
   },
   carouselContent: {
-    paddingHorizontal: 30,
-    paddingVertical: 10,
-    gap: 20,
+    paddingVertical: IS_IPAD ? 20 : 10,
+    alignItems: 'flex-start',
   },
   dhikrCard: {
-    backgroundColor: '#000000',
-    borderRadius: 50,
-    padding: 24,
+    borderRadius: IS_IPAD ? 60 : 50,
+    padding: IS_SMALL_PHONE ? 12 : IS_IPAD ? 32 : 24,
     justifyContent: 'center',
     alignItems: 'center',
-    minHeight: 220,
+    alignSelf: IS_IPAD ? 'center' : 'flex-start',
+    minHeight: IS_SMALL_PHONE ? 160 : IS_IPAD ? 220 : 220,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.5,
-    shadowRadius: 16,
-    elevation: 15,
-    borderWidth: 1,
-    borderTopColor: '#333333',
-    borderLeftColor: '#333333',
-    borderRightColor: '#000000',
-    borderBottomColor: '#000000',
+    shadowOffset: { width: 0, height: 20 },
+    shadowOpacity: 0.8,
+    shadowRadius: 30,
+    elevation: 25,
+    borderWidth: Platform.OS === 'android' ? 1 : StyleSheet.hairlineWidth,
+    borderColor: '#FFFFFF',
   },
   selectedCard: {
-    shadowOpacity: 0.7,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 16 },
-    elevation: 20,
+    shadowOpacity: 0.9,
+    shadowRadius: 40,
+    shadowOffset: { width: 0, height: 30 },
+    elevation: 35,
     transform: [{ scale: 1.03 }],
   },
+  longDhikrCard: {
+    paddingVertical: IS_IPAD ? 22 : 16,
+    minHeight: IS_IPAD ? 220 : 220,
+  },
   dhikrArabic: {
-    fontSize: 34,
+    fontSize: IS_SMALL_PHONE ? 26 : IS_IPAD ? 40 : 34,
     fontWeight: 'bold',
     color: '#FFFFFF',
     marginBottom: 10,
     textAlign: 'center',
-    lineHeight: 46,
+    lineHeight: IS_SMALL_PHONE ? 36 : IS_IPAD ? 56 : 46,
     fontFamily: 'ScheherazadeNew-Regular',
   },
+  longDhikrArabic: {
+    marginBottom: 4,
+    lineHeight: IS_SMALL_PHONE ? 32 : IS_IPAD ? 50 : 40,
+  },
   dhikrTransliteration: {
-    fontSize: 22,
+    fontSize: IS_SMALL_PHONE ? 18 : IS_IPAD ? 28 : 22,
     fontFamily: 'CormorantGaramond-SemiBold',
     color: '#FFFFFF',
     marginBottom: 6,
@@ -565,14 +659,24 @@ const styles = StyleSheet.create({
     opacity: 0.9,
     letterSpacing: 0.5,
   },
+  longDhikrTransliteration: {
+    fontSize: IS_SMALL_PHONE ? 16 : IS_IPAD ? 24 : 20,
+    marginBottom: 4,
+    lineHeight: IS_SMALL_PHONE ? 22 : IS_IPAD ? 30 : 24,
+  },
   dhikrTranslation: {
-    fontSize: 18,
+    fontSize: IS_SMALL_PHONE ? 15 : IS_IPAD ? 24 : 18,
     fontFamily: 'CormorantGaramond-Italic',
     color: '#FFFFFF',
     textAlign: 'center',
     opacity: 0.7,
     marginBottom: 10,
     letterSpacing: 0.3,
+  },
+  longDhikrTranslation: {
+    fontSize: IS_SMALL_PHONE ? 14 : IS_IPAD ? 20 : 16,
+    marginBottom: 4,
+    lineHeight: IS_SMALL_PHONE ? 20 : IS_IPAD ? 28 : 22,
   },
   targetBadge: {
     backgroundColor: 'rgba(255, 255, 255, 0.15)',
@@ -591,40 +695,43 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: 16,
-    gap: 8,
+    marginTop: IS_SMALL_PHONE ? 4 : IS_IPAD ? 20 : 16,
+    gap: IS_IPAD ? 12 : 8,
   },
   indicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: IS_IPAD ? 10 : 8,
+    height: IS_IPAD ? 10 : 8,
+    borderRadius: IS_IPAD ? 5 : 4,
     backgroundColor: '#CCCCCC',
     opacity: 0.4,
   },
   activeIndicator: {
-    width: 24,
+    width: IS_IPAD ? 30 : 24,
     backgroundColor: '#000000',
     opacity: 1,
   },
   targetPickerContainer: {
-    paddingHorizontal: 20,
-    marginTop: 16,
-    marginBottom: 8,
+    paddingHorizontal: IS_IPAD ? 60 : 20,
+    marginTop: IS_SMALL_PHONE ? 2 : IS_IPAD ? 24 : 16,
+    marginBottom: IS_SMALL_PHONE ? 8 : IS_IPAD ? 16 : 8,
+    alignSelf: IS_IPAD ? 'center' : 'stretch',
+    width: '100%',
+    maxWidth: IS_IPAD ? 600 : undefined,
   },
   targetPickerLabel: {
-    fontSize: 16,
+    fontSize: IS_IPAD ? 20 : 16,
     fontWeight: '600',
-    marginBottom: 12,
+    marginBottom: IS_IPAD ? 16 : 12,
   },
   targetPickerContent: {
-    gap: 12,
+    gap: IS_IPAD ? 16 : 12,
   },
   targetOption: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
+    paddingHorizontal: IS_IPAD ? 36 : 22,
+    paddingVertical: IS_IPAD ? 18 : 12,
+    borderRadius: IS_IPAD ? 24 : 20,
     borderWidth: 2,
-    minWidth: 70,
+    minWidth: IS_IPAD ? 140 : 80,
     alignItems: 'center',
   },
   selectedTargetOption: {
@@ -632,10 +739,10 @@ const styles = StyleSheet.create({
     borderColor: '#000000',
   },
   customTargetOption: {
-    minWidth: 90,
+    minWidth: IS_IPAD ? 160 : 100,
   },
   targetOptionText: {
-    fontSize: 16,
+    fontSize: IS_IPAD ? 26 : 18,
     fontWeight: '600',
   },
   selectedTargetOptionText: {
@@ -695,45 +802,57 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 40,
+    paddingHorizontal: IS_IPAD ? 40 : 20,
+    paddingTop: IS_SMALL_PHONE ? 5 : IS_IPAD ? 30 : 40,
+    width: '100%',
+    maxWidth: IS_IPAD ? 600 : undefined,
+    alignSelf: 'center',
   },
   counterButton: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 15,
+    marginTop: IS_SMALL_PHONE ? 12 : IS_IPAD ? 32 : 24,
+    borderRadius: 30,
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    borderWidth: 3,
-    borderTopColor: '#404040',
-    borderLeftColor: '#404040',
-    borderRightColor: '#000000',
-    borderBottomColor: '#000000',
+    shadowOpacity: 0.3,
+    shadowRadius: 15,
+    elevation: 15,
+  },
+  tapButton: {
+    paddingHorizontal: IS_SMALL_PHONE ? 20 : IS_IPAD ? 50 : 40,
+    paddingVertical: IS_SMALL_PHONE ? 10 : IS_IPAD ? 18 : 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: IS_SMALL_PHONE ? 90 : IS_IPAD ? 200 : 140,
+    minHeight: IS_SMALL_PHONE ? 36 : IS_IPAD ? 70 : 56,
   },
   counterText: {
-    fontSize: 42,
+    fontSize: IS_SMALL_PHONE ? 36 : IS_IPAD ? 48 : 42,
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
+  tapHintText: {
+    fontSize: IS_SMALL_PHONE ? 13 : IS_IPAD ? 26 : 22,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+    letterSpacing: IS_SMALL_PHONE ? 1.5 : IS_IPAD ? 3.5 : 3,
+    lineHeight: IS_SMALL_PHONE ? 16 : IS_IPAD ? 30 : 26,
+  },
   progressText: {
-    fontSize: 20,
+    fontSize: IS_SMALL_PHONE ? 16 : IS_IPAD ? 22 : 20,
     fontWeight: '600',
-    marginTop: 24,
+    marginTop: IS_SMALL_PHONE ? 8 : IS_IPAD ? 24 : 24,
   },
   resetButton: {
-    marginTop: 24,
-    paddingHorizontal: 28,
-    paddingVertical: 10,
+    marginTop: IS_SMALL_PHONE ? 16 : IS_IPAD ? 28 : 24,
+    marginBottom: 0,
+    paddingHorizontal: IS_SMALL_PHONE ? 18 : IS_IPAD ? 36 : 28,
+    paddingVertical: IS_SMALL_PHONE ? 6 : IS_IPAD ? 14 : 10,
     borderRadius: 24,
     borderWidth: 2,
   },
   resetText: {
-    fontSize: 16,
+    fontSize: IS_SMALL_PHONE ? 14 : IS_IPAD ? 18 : 16,
     fontWeight: '600',
   },
   confetti: {
@@ -744,8 +863,8 @@ const styles = StyleSheet.create({
   successMessage: {
     position: 'absolute',
     backgroundColor: '#000000',
-    borderRadius: 20,
-    padding: 24,
+    borderRadius: IS_IPAD ? 26 : 20,
+    padding: IS_IPAD ? 32 : 24,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
@@ -756,17 +875,17 @@ const styles = StyleSheet.create({
     borderColor: '#FFD700',
   },
   successEmoji: {
-    fontSize: 48,
+    fontSize: IS_IPAD ? 64 : 48,
     marginBottom: 8,
   },
   successText: {
-    fontSize: 24,
+    fontSize: IS_IPAD ? 28 : 24,
     fontWeight: 'bold',
     color: '#FFFFFF',
     marginBottom: 4,
   },
   successSubtext: {
-    fontSize: 16,
+    fontSize: IS_IPAD ? 20 : 16,
     color: '#FFD700',
     fontWeight: '600',
   },

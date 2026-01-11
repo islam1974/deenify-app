@@ -35,9 +35,9 @@ export default function FontSettings() {
     switch (settings.fontSize) {
       case 'small': return 20;
       case 'medium': return 24;
-      case 'large': return 28;
-      case 'extra-large': return 32;
-      default: return 28;
+      case 'large': return 30;
+      case 'extra-large': return 36;
+      default: return 30;
     }
   };
 

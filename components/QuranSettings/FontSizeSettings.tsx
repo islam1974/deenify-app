@@ -8,8 +8,8 @@ import { useQuranSettings, FontSize } from '@/contexts/QuranSettingsContext';
 const fontSizeOptions = [
   { value: 'small' as FontSize, label: 'Small', size: 20, description: 'Compact reading' },
   { value: 'medium' as FontSize, label: 'Medium', size: 24, description: 'Standard reading' },
-  { value: 'large' as FontSize, label: 'Large', size: 28, description: 'Easy reading' },
-  { value: 'extra-large' as FontSize, label: 'Extra Large', size: 32, description: 'Accessible reading' },
+  { value: 'large' as FontSize, label: 'Large', size: 26, description: 'Easy reading' },
+  { value: 'extra-large' as FontSize, label: 'Extra Large', size: 28, description: 'Accessible reading' },
 ];
 
 export default function FontSizeSettings() {

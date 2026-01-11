@@ -1,33 +1,36 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Animated, Modal } from 'react-native';
-import { 
-  useSharedValue, 
-  useAnimatedStyle, 
-  withTiming, 
-  withRepeat, 
-  withSequence,
-  withSpring,
-  withDelay,
-  useAnimatedScrollHandler,
-  interpolate,
-  Extrapolate
-} from 'react-native-reanimated';
-import Reanimated from 'react-native-reanimated';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { DrawerActions } from '@react-navigation/native';
-import { useNavigation } from '@react-navigation/native';
+import AnimatedHeroMessage from '@/components/AnimatedHeroMessage';
+import LocationWrapper from '@/components/LocationWrapper';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Fonts } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-import PrayerInfoWidget from '@/components/PrayerInfoWidget';
-import LocationWrapper from '@/components/LocationWrapper';
 import { useLocation } from '@/contexts/LocationContext';
-import { PrayerTimesService } from '@/services/PrayerTimesService';
-import { hadiths, Hadith } from '@/data/hadithData';
 import { useTheme } from '@/contexts/ThemeContext';
-import AnimatedHeroMessage from '@/components/AnimatedHeroMessage';
+import { Hadith, hadiths } from '@/data/hadithData';
+import { PrayerTimesService } from '@/services/PrayerTimesService';
+import { DrawerActions, useNavigation } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Dimensions, Image, Modal, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import Reanimated, {
+    Extrapolate,
+    interpolate,
+    useAnimatedScrollHandler,
+    useAnimatedStyle,
+    useSharedValue,
+    withRepeat,
+    withSequence,
+    withSpring,
+    withTiming
+} from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const IS_IPAD = Platform.OS === 'ios' ? Boolean((Platform as any).isPad) : SCREEN_WIDTH >= 768;
+const IS_SMALL_PHONE = SCREEN_WIDTH < 400;
+const IS_LARGE_PHONE = !IS_IPAD && SCREEN_WIDTH >= 414;
+const CARD_SIZE = IS_IPAD 
+  ? Math.min((SCREEN_WIDTH - 120) / 3, 240) // iPad: 3 columns, larger cards
+  : Math.min((SCREEN_WIDTH - 80) / 2, 175); // Phone: 2 columns, slightly larger
 
 interface QuickAction {
   title: string;
@@ -372,9 +375,9 @@ function AnimatedCircularCard({ action, index, scrollY }: { action: QuickAction;
       Extrapolate.CLAMP
     );
     
-    // Ensure last 2 cards always reveal (fallback for scroll trigger issues)
-    const finalOpacity = index >= 4 ? Math.max(scrollRevealOpacity, 0.8) : scrollRevealOpacity;
-    const finalScale = index >= 4 ? Math.max(scrollRevealScale, 0.95) : scrollRevealScale;
+    // Ensure last 3 cards always reveal (fallback for scroll trigger issues)
+    const finalOpacity = index >= 3 ? 1 : scrollRevealOpacity;
+    const finalScale = index >= 3 ? 1 : scrollRevealScale;
     
     return {
       transform: [
@@ -403,9 +406,9 @@ function AnimatedCircularCard({ action, index, scrollY }: { action: QuickAction;
       Extrapolate.CLAMP
     );
     
-    // Ensure last 2 card titles always reveal
-    const finalTitleOpacity = index >= 4 ? Math.max(titleScrollOpacity, 0.8) : titleScrollOpacity;
-    const finalTitleScale = index >= 4 ? Math.max(titleScrollScale, 0.95) : titleScrollScale;
+    // Ensure last 3 card titles always reveal
+    const finalTitleOpacity = index >= 3 ? 1 : titleScrollOpacity;
+    const finalTitleScale = index >= 3 ? 1 : titleScrollScale;
     
     return {
       transform: [{ scale: finalTitleScale }],
@@ -675,7 +678,7 @@ export default function HomeScreen() {
   return (
     <LocationWrapper>
       <LinearGradient
-        colors={[colors.gradientStart, colors.gradientEnd]}
+        colors={['#101828', '#101828']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
         style={styles.iridescentBackground}
@@ -761,9 +764,10 @@ export default function HomeScreen() {
           </Animated.View>
         </Modal>
 
-        <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={[styles.container, { backgroundColor: '#101828' }]}>
           <Reanimated.ScrollView 
             style={{ flex: 1 }}
+            contentContainerStyle={{ paddingBottom: 30 }}
             showsVerticalScrollIndicator={false}
             bounces={true}
             alwaysBounceVertical={true}
@@ -778,20 +782,20 @@ export default function HomeScreen() {
         >
           <View style={styles.menuButtonContainer}>
             <View style={[styles.menuIconContainer, { backgroundColor: '#FFFFFF' }]}>
-              <IconSymbol name="line.3.horizontal" size={24} color="#2C3E50" />
+              <IconSymbol name="line.3.horizontal" size={IS_IPAD ? 32 : 28} color="#2C3E50" />
             </View>
             <Text style={styles.menuButtonText}>More</Text>
           </View>
         </TouchableOpacity>
+
+        {/* Animated Hero Message */}
+        <AnimatedHeroMessage />
 
         {/* Bismillah */}
         <View style={styles.bismillahContainer}>
           <Text style={styles.bismillahText}>بِسْمِ ٱللَّٰهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ</Text>
           <Text style={styles.bismillahTranslation}>In the Name of Allah, the Most Gracious, the Most Merciful</Text>
         </View>
-
-        {/* Animated Hero Message */}
-        <AnimatedHeroMessage />
         <LanyardCard />
         <HomeScreenContent scrollY={scrollY} />
         </Reanimated.ScrollView>
@@ -827,24 +831,26 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   quickActions: {
-    padding: 10,
+    padding: IS_IPAD ? 20 : 10,
+    maxWidth: IS_IPAD ? 1000 : undefined,
+    alignSelf: IS_IPAD ? 'center' : 'auto',
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: IS_IPAD ? 28 : 20,
     fontWeight: 'bold',
-    marginBottom: 10,
+    marginBottom: IS_IPAD ? 20 : 10,
   },
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    gap: 20,
+    alignItems: 'flex-start',
+    paddingHorizontal: IS_IPAD ? 40 : IS_SMALL_PHONE ? 10 : 20,
+    gap: IS_IPAD ? 30 : IS_SMALL_PHONE ? 15 : 20,
   },
   actionCard: {
-    width: 160,
-    height: 160,
+    width: CARD_SIZE,
+    height: CARD_SIZE,
     borderRadius: 20,
     borderWidth: 2,
     borderColor: 'rgba(255, 255, 255, 0.3)',
@@ -865,7 +871,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   cardTitle: {
-    fontSize: 16,
+    fontSize: IS_IPAD ? 20 : IS_SMALL_PHONE ? 14 : 16,
     fontWeight: 'bold',
     color: '#2C3E50',
     textAlign: 'center',
@@ -895,9 +901,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   prayerTimesCardContainer: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+    width: CARD_SIZE,
+    height: CARD_SIZE,
+    borderRadius: CARD_SIZE / 2,
     overflow: 'hidden',
     position: 'relative',
     borderWidth: 4,
@@ -916,9 +922,9 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   qiblaCardContainer: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+    width: CARD_SIZE,
+    height: CARD_SIZE,
+    borderRadius: CARD_SIZE / 2,
     overflow: 'hidden',
     position: 'relative',
     borderWidth: 4,
@@ -937,9 +943,9 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   quranCardContainer: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+    width: CARD_SIZE,
+    height: CARD_SIZE,
+    borderRadius: CARD_SIZE / 2,
     overflow: 'hidden',
     position: 'relative',
     borderWidth: 4,
@@ -958,9 +964,9 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   tasbihCardContainer: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+    width: CARD_SIZE,
+    height: CARD_SIZE,
+    borderRadius: CARD_SIZE / 2,
     overflow: 'hidden',
     position: 'relative',
     borderWidth: 4,
@@ -979,9 +985,9 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   duasCardContainer: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+    width: CARD_SIZE,
+    height: CARD_SIZE,
+    borderRadius: CARD_SIZE / 2,
     overflow: 'hidden',
     position: 'relative',
     borderWidth: 4,
@@ -1000,9 +1006,9 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   hadithCardContainer: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+    width: CARD_SIZE,
+    height: CARD_SIZE,
+    borderRadius: CARD_SIZE / 2,
     overflow: 'hidden',
     position: 'relative',
     borderWidth: 4,
@@ -1028,9 +1034,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   circularActionCard: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+    width: CARD_SIZE,
+    height: CARD_SIZE,
+    borderRadius: CARD_SIZE / 2,
     overflow: 'hidden',
     position: 'relative',
     justifyContent: 'center',
@@ -1061,27 +1067,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   verseContainer: {
-    margin: 10,
-    padding: 15,
+    margin: IS_IPAD ? 20 : 10,
+    padding: IS_IPAD ? 24 : 15,
     borderRadius: 12,
     borderLeftWidth: 4,
     borderLeftColor: '#4CAF50',
+    maxWidth: IS_IPAD ? 800 : undefined,
+    alignSelf: IS_IPAD ? 'center' : 'auto',
   },
   verseText: {
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: IS_IPAD ? 20 : 16,
+    lineHeight: IS_IPAD ? 32 : 24,
     fontStyle: 'italic',
     marginBottom: 10,
   },
   verseReference: {
-    fontSize: 14,
+    fontSize: IS_IPAD ? 18 : 14,
     fontWeight: 'bold',
     textAlign: 'right',
   },
   lanyardCardWrapper: {
-    marginHorizontal: 10,
-    marginTop: -50,
+    marginHorizontal: IS_IPAD ? 40 : 10,
+    marginTop: 20,
     marginBottom: 10,
+    maxWidth: IS_IPAD ? 900 : undefined,
+    alignSelf: IS_IPAD ? 'center' : 'auto',
+    width: IS_IPAD ? '85%' : undefined,
   },
   lanyardCard: {
     borderRadius: 30,
@@ -1099,7 +1110,7 @@ const styles = StyleSheet.create({
   },
   lanyardGradient: {
     borderRadius: 30,
-    padding: 20,
+    padding: IS_IPAD ? 40 : 24,
   },
   lanyardContent: {
     alignItems: 'center',
@@ -1109,16 +1120,16 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   lanyardTitle: {
-    fontSize: 24,
+    fontSize: IS_IPAD ? 36 : 28,
     fontWeight: '900',
     color: '#FFFFFF',
-    marginBottom: 5,
+    marginBottom: IS_IPAD ? 8 : 5,
     textShadowColor: '#000000',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 3,
   },
   lanyardLocation: {
-    fontSize: 16,
+    fontSize: IS_IPAD ? 24 : 18,
     color: '#FFFFFF',
     fontWeight: '700',
     opacity: 0.9,
@@ -1139,7 +1150,7 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255, 255, 255, 0.3)',
   },
   lanyardTimeLabel: {
-    fontSize: 16,
+    fontSize: IS_IPAD ? 24 : 18,
     color: '#FFFFFF',
     fontWeight: '800',
     textShadowColor: '#000000',
@@ -1147,7 +1158,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
   lanyardTimeValue: {
-    fontSize: 16,
+    fontSize: IS_IPAD ? 24 : 18,
     color: '#FFFFFF',
     fontWeight: '900',
     textShadowColor: '#000000',
@@ -1164,13 +1175,13 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   lanyardDateLabel: {
-    fontSize: 14,
+    fontSize: IS_IPAD ? 22 : 16,
     color: '#FFFFFF',
     fontWeight: '800',
     opacity: 0.9,
   },
   lanyardDateValue: {
-    fontSize: 14,
+    fontSize: IS_IPAD ? 22 : 16,
     color: '#FFFFFF',
     fontWeight: '700',
     textAlign: 'right',
@@ -1178,7 +1189,7 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   lanyardLoadingText: {
-    fontSize: 18,
+    fontSize: IS_IPAD ? 24 : 20,
     color: '#FFFFFF',
     fontWeight: '800',
     textAlign: 'center',
@@ -1297,9 +1308,9 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   menuIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: IS_IPAD ? 56 : 48,
+    height: IS_IPAD ? 56 : 48,
+    borderRadius: IS_IPAD ? 28 : 24,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -1311,7 +1322,7 @@ const styles = StyleSheet.create({
   menuButtonText: {
     marginTop: 4,
     marginLeft: 5,
-    fontSize: 14,
+    fontSize: IS_IPAD ? 18 : 16,
     fontWeight: '600',
     color: '#FFFFFF',
     textShadowColor: 'rgba(0, 0, 0, 0.75)',
@@ -1321,29 +1332,33 @@ const styles = StyleSheet.create({
   bismillahContainer: {
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 15,
-    marginTop: 80,
+    paddingVertical: 10,
+    marginTop: IS_IPAD ? -120 : IS_SMALL_PHONE ? -60 : IS_LARGE_PHONE ? -140 : -180,
+    zIndex: 10,
   },
   bismillahText: {
-    fontSize: 42,
+    fontSize: IS_IPAD ? 56 : IS_SMALL_PHONE ? 30 : 42,
     color: '#FFFFFF',
     fontFamily: 'Amiri-Bold',
+    fontWeight: '900',
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: IS_IPAD ? 12 : IS_SMALL_PHONE ? 10 : 8,
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 0, height: 1 },
+    textShadowOffset: { width: 1, height: 2 },
     textShadowRadius: 3,
+    opacity: 0.9,
   },
   bismillahTranslation: {
-    fontSize: 19,
+    fontSize: IS_IPAD ? 26 : IS_SMALL_PHONE ? 15 : 19,
     color: '#FFFFFF',
     fontFamily: 'CormorantGaramond-Italic',
+    fontWeight: '600',
     textAlign: 'center',
-    opacity: 0.9,
-    letterSpacing: 0.5,
+    opacity: 0.85,
+    letterSpacing: 0.8,
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 3,
   },
 });
 

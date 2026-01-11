@@ -23,17 +23,17 @@ export default function FontSizeTest() {
         };
       case 'large':
         return {
-          arabic: 28,
+          arabic: 30,
           translation: 16,
         };
       case 'extra-large':
         return {
-          arabic: 32,
+          arabic: 36,
           translation: 18,
         };
       default:
         return {
-          arabic: 28,
+          arabic: 30,
           translation: 16,
         };
     }

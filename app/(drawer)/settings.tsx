@@ -1,29 +1,25 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Modal, Animated, Alert } from 'react-native';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useRouter } from 'expo-router';
-import { useLocation } from '@/contexts/LocationContext';
-import { useQuranSettings, QuranSettingsProvider } from '@/contexts/QuranSettingsContext';
-import { usePrayerNotifications, PrayerNotificationProvider } from '@/contexts/PrayerNotificationContext';
-import { usePrayerSettings, PrayerSettingsProvider } from '@/contexts/PrayerSettingsContext';
-import { useTheme } from '@/contexts/ThemeContext';
-import { PrayerNotificationService } from '@/services/PrayerNotificationService';
+import AdhanSoundSettingsComponent from '@/components/AdhanSoundSettings';
 import LocationWrapper from '@/components/LocationWrapper';
-import FontSizeSettings from '@/components/QuranSettings/FontSizeSettings';
-import TextDirectionSettings from '@/components/QuranSettings/TextDirectionSettings';
-import BookmarksSettings from '@/components/QuranSettings/BookmarksSettings';
-import ReciterSettings from '@/components/QuranSettings/ReciterSettings';
-import TranslatorSettings from '@/components/QuranSettings/TranslatorSettings';
-import TranslationPlaybackSettings from '@/components/QuranSettings/TranslationPlaybackSettings';
-import TTSVoiceSettings from '@/components/QuranSettings/TTSVoiceSettings';
 import CalculationMethodSettings from '@/components/PrayerSettings/CalculationMethodSettings';
 import MadhabSettings from '@/components/PrayerSettings/MadhabSettings';
-import PrayerNotificationPopup from '@/components/PrayerNotificationPopup';
-import AdhanSoundSettingsComponent from '@/components/AdhanSoundSettings';
+import BookmarksSettings from '@/components/QuranSettings/BookmarksSettings';
+import FontSizeSettings from '@/components/QuranSettings/FontSizeSettings';
+import ReciterSettings from '@/components/QuranSettings/ReciterSettings';
+import TextDirectionSettings from '@/components/QuranSettings/TextDirectionSettings';
+import TranslatorSettings from '@/components/QuranSettings/TranslatorSettings';
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { Colors } from '@/constants/theme';
+import { useLocation } from '@/contexts/LocationContext';
+import { PrayerNotificationProvider, usePrayerNotifications } from '@/contexts/PrayerNotificationContext';
+import { PrayerSettingsProvider, usePrayerSettings } from '@/contexts/PrayerSettingsContext';
+import { useQuranSettings } from '@/contexts/QuranSettingsContext';
+import { useTheme } from '@/contexts/ThemeContext';
+import { useRouter } from 'expo-router';
+import React, { useState } from 'react';
+import { Alert, Modal, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 
 function SettingsScreenContent() {
+  const router = useRouter();
   const { theme } = useTheme();
   const colors = Colors[((theme as 'light' | 'dark') ?? 'light' as 'light' | 'dark') ?? 'light'];
   const { location, locationEnabled, toggleLocationServices } = useLocation();
@@ -32,10 +28,6 @@ function SettingsScreenContent() {
     settings: prayerNotificationSettings, 
     updateSettings: updatePrayerSettings,
     showTestNotification,
-    showPopup,
-    popupVisible,
-    popupData,
-    hidePopup,
     showPermissionModal,
   } = usePrayerNotifications();
   const { settings: prayerSettings } = usePrayerSettings();
@@ -156,26 +148,6 @@ function SettingsScreenContent() {
             setModalVisible(true);
           },
         },
-        {
-          icon: 'speaker.wave.2.fill',
-          title: 'Translation Playback',
-          subtitle: settings.playTranslation ? 'Enabled' : 'Disabled',
-          type: 'navigation',
-          onPress: () => {
-            setCurrentModal('translationPlayback');
-            setModalVisible(true);
-          },
-        },
-        {
-          icon: 'person.wave.2.fill',
-          title: 'TTS Voice',
-          subtitle: 'Voice selection for translations',
-          type: 'navigation',
-          onPress: () => {
-            setCurrentModal('ttsVoice');
-            setModalVisible(true);
-          },
-        },
       ],
     },
     {
@@ -190,16 +162,40 @@ function SettingsScreenContent() {
         {
           icon: 'bell.badge.fill',
           title: 'Test Notification',
-          subtitle: 'Test prayer notification popup',
+          subtitle: 'Test prayer notification',
           type: 'navigation',
           onPress: async () => {
             await showTestNotification();
-            // Also show popup for testing
-            showPopup({
-              prayerName: 'Fajr',
-              prayerArabic: 'الفجر',
-              prayerTime: '05:30 AM',
-            });
+          },
+        },
+      ],
+    },
+    {
+      title: 'Privacy & Legal',
+      items: [
+        {
+          icon: 'lock.shield.fill',
+          title: 'Privacy Policy',
+          subtitle: 'How we protect your data',
+          type: 'navigation',
+          onPress: () => {
+            router.push('/privacy-policy');
+          },
+        },
+        {
+          icon: 'hand.raised.fill',
+          title: 'Data & Permissions',
+          subtitle: 'Manage app permissions',
+          type: 'navigation',
+          onPress: () => {
+            Alert.alert(
+              'Data & Permissions',
+              'All your data is stored locally on your device. To manage app permissions:\n\n' +
+              '• iOS: Settings > Deenify > Permissions\n' +
+              '• Android: Settings > Apps > Deenify > Permissions\n\n' +
+              'You can change location, notification, and other permissions at any time.',
+              [{ text: 'OK' }]
+            );
           },
         },
       ],
@@ -212,18 +208,65 @@ function SettingsScreenContent() {
           title: 'About Deenify',
           subtitle: 'Version 1.0.0',
           type: 'navigation',
+          onPress: () => {
+            router.push('/about');
+          },
         },
         {
           icon: 'star.fill',
           title: 'Rate App',
           subtitle: 'Rate us on the App Store',
           type: 'navigation',
+          onPress: () => {
+            // TODO: Replace with your actual App Store ID when published
+            Alert.alert(
+              'Rate Deenify',
+              'Thank you for using Deenify! Once the app is published, you can rate us on the App Store to help other Muslims discover this app.',
+              [{ text: 'OK' }]
+            );
+            // Uncomment and replace APP_ID when published:
+            // const storeUrl = Platform.OS === 'ios' 
+            //   ? 'https://apps.apple.com/app/id[APP_ID]'
+            //   : 'https://play.google.com/store/apps/details?id=com.deenify.app';
+            // Linking.openURL(storeUrl);
+          },
         },
         {
           icon: 'envelope.fill',
           title: 'Contact Us',
           subtitle: 'Send feedback',
           type: 'navigation',
+          onPress: () => {
+            Alert.alert(
+              'Contact Us',
+              'Choose how you would like to reach us:',
+              [
+                {
+                  text: 'Email Support',
+                  onPress: () => {
+                    const email = 'support@deenify.app';
+                    const subject = 'Feedback for Deenify';
+                    const url = `mailto:${email}?subject=${encodeURIComponent(subject)}`;
+                    require('react-native').Linking.openURL(url).catch(() => {
+                      Alert.alert('Error', 'Could not open email app');
+                    });
+                  },
+                },
+                {
+                  text: 'Report Issue',
+                  onPress: () => {
+                    const email = 'support@deenify.app';
+                    const subject = 'Issue Report - Deenify';
+                    const url = `mailto:${email}?subject=${encodeURIComponent(subject)}`;
+                    require('react-native').Linking.openURL(url).catch(() => {
+                      Alert.alert('Error', 'Could not open email app');
+                    });
+                  },
+                },
+                { text: 'Cancel', style: 'cancel' },
+              ]
+            );
+          },
         },
       ],
     },
@@ -308,30 +351,12 @@ function SettingsScreenContent() {
           {currentModal === 'bookmarks' && <BookmarksSettings />}
           {currentModal === 'reciter' && <ReciterSettings />}
           {currentModal === 'translator' && <TranslatorSettings />}
-          {currentModal === 'translationPlayback' && <TranslationPlaybackSettings />}
-          {currentModal === 'ttsVoice' && <TTSVoiceSettings />}
           {currentModal === 'calculationMethod' && <CalculationMethodSettings />}
           {currentModal === 'madhab' && <MadhabSettings />}
           {currentModal === 'adhanSettings' && <AdhanSoundSettingsComponent onClose={() => setModalVisible(false)} />}
         </View>
       </Modal>
 
-      {/* Prayer Notification Popup */}
-      {popupVisible && popupData && (
-        <PrayerNotificationPopup
-          visible={popupVisible}
-          prayerName={popupData.prayerName}
-          prayerArabic={popupData.prayerArabic}
-          prayerTime={popupData.prayerTime}
-          hadithText={popupData.hadithText}
-          hadithSource={popupData.hadithSource}
-          onDismiss={hidePopup}
-          onOpenApp={() => {
-            // Navigate to prayer times screen
-            // You can add navigation logic here if needed
-          }}
-        />
-      )}
     </ScrollView>
   );
 }
@@ -339,13 +364,11 @@ function SettingsScreenContent() {
 export default function SettingsScreen() {
   return (
     <LocationWrapper>
-      <QuranSettingsProvider>
-        <PrayerSettingsProvider>
-          <PrayerNotificationProvider>
-            <SettingsScreenContent />
-          </PrayerNotificationProvider>
-        </PrayerSettingsProvider>
-      </QuranSettingsProvider>
+      <PrayerSettingsProvider>
+        <PrayerNotificationProvider>
+          <SettingsScreenContent />
+        </PrayerNotificationProvider>
+      </PrayerSettingsProvider>
     </LocationWrapper>
   );
 }

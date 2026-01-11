@@ -1,16 +1,16 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { PrayerTimesService } from './PrayerTimesService';
 import { AdhanSoundService } from './AdhanSoundService';
 import { HadithService } from './HadithService';
+import { PrayerTimesService } from './PrayerTimesService';
 
 // Configure notification behavior
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
     shouldPlaySound: true,
-    shouldSetBadge: false,
+    shouldSetBadge: true,
   }),
 });
 
@@ -273,6 +273,15 @@ export class PrayerNotificationService {
           priority: Notifications.AndroidNotificationPriority.HIGH,
           vibrate: [0, 250, 250, 250],
           color: '#3a5a40',
+          icon: 'notification_icon',
+        };
+      }
+
+      // Add iOS-specific configuration
+      if (Platform.OS === 'ios') {
+        notificationContent.ios = {
+          sound: soundEnabled ? 'default' : undefined,
+          badge: 1,
         };
       }
       
@@ -320,6 +329,52 @@ export class PrayerNotificationService {
 
   static async showTestNotification(): Promise<void> {
     try {
+      // Check permissions first
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      console.log('Current notification permission status:', existingStatus);
+      
+      if (existingStatus !== 'granted') {
+        console.log('Requesting notification permissions...');
+        const { status } = await Notifications.requestPermissionsAsync({
+          ios: {
+            allowAlert: true,
+            allowBadge: true,
+            allowSound: true,
+          },
+          android: {
+            allowAlert: true,
+            allowSound: true,
+            allowBadge: true,
+          },
+        });
+        console.log('New notification permission status:', status);
+        
+        if (status !== 'granted') {
+          console.error('Notification permission not granted');
+          return;
+        }
+      }
+
+      // Create notification channel for Android if it doesn't exist
+      if (Platform.OS === 'android') {
+        try {
+          await Notifications.setNotificationChannelAsync('prayer-times', {
+            name: 'Prayer Times',
+            description: 'Notifications for Islamic prayer times',
+            importance: Notifications.AndroidImportance.HIGH,
+            vibrationPattern: [0, 250, 250, 250],
+            lightColor: '#3a5a40',
+            sound: 'default',
+            enableVibrate: true,
+            enableLights: true,
+            lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+          });
+          console.log('Android notification channel ensured');
+        } catch (channelError) {
+          console.error('Error creating notification channel:', channelError);
+        }
+      }
+      
       // Get a random prayer-related Hadith for test
       const hadith = HadithService.getPrayerSpecificHadith('Fajr');
       const hadithText = HadithService.formatHadithForNotification(hadith) || "May Allah accept your prayers.";
@@ -346,6 +401,14 @@ export class PrayerNotificationService {
           priority: Notifications.AndroidNotificationPriority.HIGH,
           vibrate: [0, 250, 250, 250],
           color: '#3a5a40',
+        };
+      }
+
+      // Add iOS-specific configuration
+      if (Platform.OS === 'ios') {
+        notificationContent.ios = {
+          sound: 'default',
+          badge: 1,
         };
       }
       

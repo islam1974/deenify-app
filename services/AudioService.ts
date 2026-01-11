@@ -1,6 +1,5 @@
 import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import QuranService from './QuranService';
-import * as Speech from 'expo-speech';
 
 export interface AudioState {
   isPlaying: boolean;
@@ -8,19 +7,17 @@ export interface AudioState {
   currentChapter: number | null;
   duration: number;
   position: number;
-  isPlayingTranslation?: boolean; // New field for translation playback
 }
 
 class AudioService {
   private sound: Audio.Sound | null = null;
+  private nextSound: Audio.Sound | null = null; // Preloaded next verse for gapless playback
+  private nextPreparedVerseIndex: number = -1; // Which verse index the nextSound corresponds to
   private currentAudioUrl: string | null = null;
   private listeners: ((state: AudioState) => void)[] = [];
   private currentSurah: any = null;
   private currentVerseIndex: number = 0;
   private currentReciterAudioUrl: string | undefined = undefined;
-  private playTranslation: boolean = false;
-  private selectedTranslator: string = 'sahih';
-  private isPlayingTranslation: boolean = false; // Flag to prevent simultaneous playback
   private isTransitioning: boolean = false; // Flag to prevent overlapping verse transitions
   private isProcessingFinish: boolean = false; // Flag to prevent multiple didJustFinish handlers
   private state: AudioState = {
@@ -28,8 +25,7 @@ class AudioService {
     currentVerse: null,
     currentChapter: null,
     duration: 0,
-    position: 0,
-    isPlayingTranslation: false
+    position: 0
   };
 
   constructor() {
@@ -72,13 +68,6 @@ class AudioService {
         audioAvailable: !!Audio
       });
     }
-  }
-
-  // Configure translation playback settings
-  setTranslationSettings(playTranslation: boolean, selectedTranslator: string) {
-    console.log(`🔊 Translation settings updated: play=${playTranslation}, translator=${selectedTranslator}`);
-    this.playTranslation = playTranslation;
-    this.selectedTranslator = selectedTranslator;
   }
 
   private async testNetworkConnectivity(): Promise<boolean> {
@@ -133,21 +122,109 @@ class AudioService {
     };
   }
 
+  private getReciterAudioSources(chapterNumber: number, verseNumber: number, reciterId?: string): string[] {
+    const reciterAudioSources: Record<string, string[]> = {
+      'alafasy': [
+        `https://www.everyayah.com/data/Alafasy_128kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
+        `https://www.everyayah.com/data/Alafasy_64kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
+      ],
+      'husary': [
+        `https://www.everyayah.com/data/Husary_128kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
+        `https://www.everyayah.com/data/Husary_64kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
+      ],
+      'abdul_basit_mujawwad': [
+        `https://www.everyayah.com/data/Abdul_Basit_Mujawwad_128kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
+        `https://www.everyayah.com/data/Abdul_Basit_Mujawwad_64kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
+      ],
+      'salah_al_budair': [
+        `https://www.everyayah.com/data/Salah_Al_Budair_128kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
+        `https://www.everyayah.com/data/Salah_Al_Budair_64kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
+      ],
+      'default': [
+        `https://www.everyayah.com/data/Alafasy_128kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
+        `https://www.everyayah.com/data/Alafasy_64kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
+      ],
+    };
+
+    const selectedReciter = reciterId || 'alafasy';
+    return reciterAudioSources[selectedReciter] || reciterAudioSources['default'];
+  }
+
+  private async preloadNextVerse() {
+    try {
+      if (!this.currentSurah) return;
+      const upcomingIndex = this.currentVerseIndex + 1;
+      if (upcomingIndex > this.currentSurah.verses.length - 1) return;
+
+      // Start preloading even if we already have a preloaded verse
+      // This ensures we're always ready with the next verse
+      // Only skip if we've already preloaded this specific verse
+      if (this.nextSound && this.nextPreparedVerseIndex === upcomingIndex) return;
+
+      const nextVerse = this.currentSurah.verses[upcomingIndex];
+      const sources = this.getReciterAudioSources(this.currentSurah.id, nextVerse.verseNumber, this.currentReciterAudioUrl);
+      
+      // Clean any stale preloaded sound after getting new sources to minimize gap
+      if (this.nextSound) {
+        try {
+          const status = await this.nextSound.getStatusAsync();
+          if (status.isLoaded) {
+            await this.nextSound.unloadAsync();
+          }
+        } catch {}
+        this.nextSound = null;
+      }
+
+      let preloaded: Audio.Sound | null = null;
+      for (let i = 0; i < sources.length; i++) {
+        try {
+          const timeoutPromise = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Preload timeout')), 1500)); // Reduced timeout
+          const createPromise = Audio.Sound.createAsync(
+            { uri: sources[i] },
+            {
+              shouldPlay: false,
+              isLooping: false,
+              volume: 1.0,
+              rate: 1.0,
+              shouldCorrectPitch: true,
+              progressUpdateIntervalMillis: 200,
+            },
+            null,
+            true // Download first
+          );
+          const { sound } = await Promise.race([createPromise, timeoutPromise]);
+          // Skip status check to reduce latency - the download flag ensures it's ready
+          preloaded = sound;
+          break;
+        } catch {
+          continue;
+        }
+      }
+
+      if (preloaded) {
+        this.nextSound = preloaded;
+        this.nextPreparedVerseIndex = upcomingIndex;
+        // Do not attach status update until promoted to current to avoid duplicate callbacks
+      }
+    } catch (e) {
+      // Ignore preload errors; we'll fall back to normal load
+    }
+  }
+
   async playVerse(audioUrl: string, chapterNumber: number, verseNumber: number, reciterId?: string) {
     try {
-      console.log(`🎵 playVerse called - Chapter: ${chapterNumber}, Verse: ${verseNumber}`);
+      const isContinuousMode = this.currentSurah !== null;
+      console.log(`🎵 playVerse called - Chapter: ${chapterNumber}, Verse: ${verseNumber}, Continuous: ${isContinuousMode}`);
       
       // Stop current audio completely if playing
       if (this.sound) {
         try {
-          console.log('🛑 Stopping and unloading previous sound...');
           const status = await this.sound.getStatusAsync();
           if (status.isLoaded) {
             // Critical: Remove callback FIRST to prevent any more updates
             this.sound.setOnPlaybackStatusUpdate(null);
             await this.sound.stopAsync();
             await this.sound.unloadAsync();
-            console.log('✅ Previous sound stopped and unloaded');
           }
         } catch (error) {
           console.log('⚠️ Error stopping previous audio:', error);
@@ -161,43 +238,13 @@ class AudioService {
         return;
       }
       
-      // Reset flags
+      // Reset processing flag (but preserve continuous mode context)
       this.isProcessingFinish = false;
 
       // Skip network test - audio loading will fail fast if no network
       // Load audio immediately
 
-      // CONFIRMED WORKING AUDIO SOURCES: Only verified working URLs
-      const reciterAudioSources: Record<string, string[]> = {
-        'alafasy': [
-          // Confirmed working
-          `https://www.everyayah.com/data/Alafasy_128kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
-          `https://www.everyayah.com/data/Alafasy_64kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
-        ],
-        'husary': [
-          // Confirmed working
-          `https://www.everyayah.com/data/Husary_128kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
-          `https://www.everyayah.com/data/Husary_64kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
-        ],
-        'abdul_basit_mujawwad': [
-          // Confirmed working
-          `https://www.everyayah.com/data/Abdul_Basit_Mujawwad_128kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
-          `https://www.everyayah.com/data/Abdul_Basit_Mujawwad_64kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
-        ],
-        'salah_al_budair': [
-          // Confirmed working
-          `https://www.everyayah.com/data/Salah_Al_Budair_128kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
-          `https://www.everyayah.com/data/Salah_Al_Budair_64kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
-        ],
-        // Fallback to Alafasy for all other reciters
-        'default': [
-          `https://www.everyayah.com/data/Alafasy_128kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
-          `https://www.everyayah.com/data/Alafasy_64kbps/${String(chapterNumber).padStart(3, '0')}${String(verseNumber).padStart(3, '0')}.mp3`,
-        ],
-      };
-
-      const selectedReciter = reciterId || 'alafasy';
-      const audioSources = reciterAudioSources[selectedReciter] || reciterAudioSources['default'];
+      const audioSources = this.getReciterAudioSources(chapterNumber, verseNumber, reciterId);
 
       let sound: Audio.Sound | null = null;
       let lastError: Error | null = null;
@@ -260,6 +307,12 @@ class AudioService {
       };
       
       this.notifyListeners();
+
+      // Proactively preload the next verse for gapless playback (only in continuous mode)
+      if (this.currentSurah) {
+        console.log('🔄 Preloading next verse for continuous playback...');
+        this.preloadNextVerse();
+      }
     } catch (error) {
       console.error('❌ Error playing verse:', error);
       this.state = {
@@ -312,14 +365,6 @@ class AudioService {
   async stop() {
     console.log('🎵 Stopping audio...');
     
-    // Stop any TTS that might be playing
-    try {
-      await Speech.stop();
-      console.log('🔊 TTS stopped');
-    } catch (error) {
-      console.log('🔊 TTS stop error (might not be playing):', error);
-    }
-    
     // Clean up current sound
     if (this.sound) {
       try {
@@ -350,10 +395,21 @@ class AudioService {
       this.currentReciterAudioUrl = null;
     }
     
+    // Clear any preloaded next sound
+    if (this.nextSound) {
+      try {
+        const status = await this.nextSound.getStatusAsync();
+        if (status.isLoaded) {
+          await this.nextSound.unloadAsync();
+        }
+      } catch {}
+      this.nextSound = null;
+      this.nextPreparedVerseIndex = -1;
+    }
+
     // Clear surah playback state
     this.currentSurah = null;
     this.currentVerseIndex = 0;
-    this.isPlayingTranslation = false;
     this.isTransitioning = false; // Reset transition lock
     this.isProcessingFinish = false; // Reset finish processing flag
     
@@ -363,8 +419,7 @@ class AudioService {
       currentVerse: null,
       currentChapter: null,
       duration: 0,
-      position: 0,
-      isPlayingTranslation: false
+      position: 0
     };
     this.notifyListeners();
   }
@@ -372,23 +427,27 @@ class AudioService {
   async playFullSurah(chapter: any, reciterId?: string) {
     try {
       if (chapter.verses && chapter.verses.length > 0) {
+        console.log('🎵 Starting full surah playback');
+        console.log('📖 Chapter:', chapter.nameTransliterated || chapter.name);
+        console.log('📊 Total verses:', chapter.verses.length);
+        console.log('🎙️ Reciter:', reciterId || 'default');
+        
         // Reset all flags
         this.isTransitioning = false;
         this.isProcessingFinish = false;
-        this.isPlayingTranslation = false;
-        
-        // Start with the first verse
-        const firstVerse = chapter.verses[0];
-        
-        console.log('🎵 Starting full surah playback with real audio');
         
         // Set up automatic progression through verses FIRST
         this.setupSurahPlayback(chapter, reciterId);
         
+        // Start with the first verse
+        const firstVerse = chapter.verses[0];
+        console.log('▶️ Playing first verse:', firstVerse.verseNumber);
+        
         await this.playVerse(firstVerse.audioUrl, chapter.id, firstVerse.verseNumber, reciterId);
+        console.log('✅ First verse started, continuous mode enabled');
       }
     } catch (error) {
-      console.error('Error playing full surah:', error);
+      console.error('❌ Error playing full surah:', error);
       this.state = {
         ...this.state,
         isPlaying: false,
@@ -401,11 +460,15 @@ class AudioService {
   }
 
   private setupSurahPlayback(chapter: any, reciterId?: string) {
-    // This will be called when each verse finishes playing
-    // We'll implement this in the onPlaybackStatusUpdate method
+    console.log('🔧 Setting up continuous surah playback mode');
     this.currentSurah = chapter;
     this.currentVerseIndex = 0;
     this.currentReciterAudioUrl = reciterId || undefined;
+    console.log('✅ Surah context initialized:', {
+      chapter: chapter.nameTransliterated || chapter.name,
+      verses: chapter.verses.length,
+      reciter: reciterId || 'default'
+    });
   }
 
   private async playNextVerse() {
@@ -417,43 +480,35 @@ class AudioService {
     
     if (!this.currentSurah || this.currentVerseIndex >= this.currentSurah.verses.length - 1) {
       // End of surah
-      console.log('🎵 End of surah reached');
+      console.log('🏁 End of surah reached');
       this.isTransitioning = false;
       await this.stop();
       return;
     }
     
     this.isTransitioning = true; // Lock to prevent concurrent calls
+    console.log(`🔄 Transitioning from verse ${this.currentVerseIndex + 1} to ${this.currentVerseIndex + 2}`);
     
     try {
-      // Stop current sound completely before moving to next
-      if (this.sound) {
-        console.log('🛑 Cleaning up current sound before next verse...');
-        try {
-          const status = await this.sound.getStatusAsync();
-          if (status.isLoaded) {
-            this.sound.setOnPlaybackStatusUpdate(null);
-            await this.sound.stopAsync();
-            await this.sound.unloadAsync();
-          }
-        } catch (e) {
-          console.log('⚠️ Error cleaning up current sound:', e);
-        }
-        this.sound = null;
-      }
+      const targetIndex = this.currentVerseIndex + 1;
+      const nextVerse = this.currentSurah.verses[targetIndex];
       
-      // Small delay to ensure cleanup is complete
-      await new Promise(resolve => setTimeout(resolve, 100));
+      console.log(`⏭️ Playing next verse: ${nextVerse.verseNumber} (${targetIndex + 1}/${this.currentSurah.verses.length})`);
       
-      this.currentVerseIndex++;
-      const nextVerse = this.currentSurah.verses[this.currentVerseIndex];
+      // Update index BEFORE playing to ensure context is correct
+      this.currentVerseIndex = targetIndex;
       
-      console.log(`⏭️ Moving to next verse: ${nextVerse.verseNumber}`);
+      // Play the verse (this will also set up the status callback)
+      await this.playVerse(
+        nextVerse.audioUrl!, 
+        this.currentSurah.id, 
+        nextVerse.verseNumber, 
+        this.currentReciterAudioUrl
+      );
       
-      // Play the next verse
-      await this.playVerse(nextVerse.audioUrl!, this.currentSurah.id, nextVerse.verseNumber, this.currentReciterAudioUrl);
-      
+      console.log('✅ Next verse started successfully');
       this.isTransitioning = false; // Unlock
+      
     } catch (error) {
       console.error('❌ Error playing next verse:', error);
       this.isTransitioning = false; // Unlock even on error
@@ -461,7 +516,7 @@ class AudioService {
       // Try to continue with the verse after next
       if (this.currentSurah && this.currentVerseIndex < this.currentSurah.verses.length - 1) {
         console.log('⏭️ Skipping problematic verse, trying next one...');
-        setTimeout(() => this.playNextVerse(), 200); // Delay before retry
+        setTimeout(() => this.playNextVerse(), 100);
       } else {
         // Stop playback if we're at the end or can't continue
         await this.stop();
@@ -469,147 +524,8 @@ class AudioService {
     }
   }
 
-  private async playTranslationForCurrentVerse() {
-    if (!this.currentSurah || !this.state.currentVerse) {
-      console.log('🔊 No current verse for translation playback');
-      return;
-    }
-
-    try {
-      // Find the current verse
-      const currentVerse = this.currentSurah.verses.find((v: any) => v.verseNumber === this.state.currentVerse);
-      if (!currentVerse) {
-        console.log('🔊 No current verse found');
-        // Move to next verse if no verse
-        if (this.currentSurah && this.currentVerseIndex < this.currentSurah.verses.length - 1) {
-          this.playNextVerse();
-        } else {
-          await this.stop();
-        }
-        return;
-      }
-
-      console.log(`🔊 Playing translation for verse ${this.state.currentVerse}...`);
-      
-      // Update state to show we're playing translation - keep current verse highlighted
-      this.state = {
-        ...this.state,
-        isPlaying: false, // Not using Arabic audio
-        isPlayingTranslation: true,
-        currentVerse: this.state.currentVerse, // Maintain current verse for highlighting
-        currentChapter: this.state.currentChapter // Maintain current chapter
-      };
-      this.notifyListeners();
-
-      // Use TTS for English translation (more reliable than audio files)
-      if (currentVerse.translation) {
-        console.log(`🔊 Using TTS for Pickthall translation: "${currentVerse.translation.substring(0, 50)}..."`);
-        
-        // Check if TTS is available
-        try {
-          const isSpeaking = await Speech.isSpeakingAsync();
-          console.log(`🔊 TTS engine status - Currently speaking: ${isSpeaking}`);
-        } catch (e) {
-          console.log('🔊 TTS engine check:', e);
-        }
-        
-        // Use TTS with settings optimized for Android compatibility
-        await Speech.speak(currentVerse.translation, {
-          language: 'en-US',
-          pitch: 1.0, // Normal pitch for better Android compatibility
-          rate: 0.75, // Moderate rate for better comprehension
-          volume: 1.0, // Full volume
-          onStart: () => {
-            console.log('🔊 TTS started for Pickthall translation');
-            this.state = {
-              ...this.state,
-              isPlaying: true, // Show as playing during TTS
-              isPlayingTranslation: true
-            };
-            this.notifyListeners();
-          },
-          onDone: () => {
-            console.log('🔊 TTS completed for Pickthall translation');
-            this.state = {
-              ...this.state,
-              isPlaying: false,
-              isPlayingTranslation: false
-            };
-            this.notifyListeners();
-            
-            // After TTS finishes, move to next verse or end immediately
-            if (this.currentSurah && this.currentVerseIndex < this.currentSurah.verses.length - 1) {
-              console.log('🎵 Translation finished, moving to next verse...');
-              this.isPlayingTranslation = false; // Reset flag
-              this.playNextVerse();
-            } else {
-              console.log('🎵 Translation finished, end of surah');
-              this.isPlayingTranslation = false; // Reset flag
-              this.state = {
-                ...this.state,
-                isPlaying: false,
-                currentVerse: null,
-                currentChapter: null,
-                isPlayingTranslation: false
-              };
-              this.notifyListeners();
-            }
-          },
-          onError: (error) => {
-            console.error('❌ TTS error for Pickthall translation:', error);
-            console.error('❌ Error details:', JSON.stringify(error));
-            this.state = {
-              ...this.state,
-              isPlaying: false,
-              isPlayingTranslation: false
-            };
-            this.notifyListeners();
-            
-            // Move to next verse if TTS fails
-            if (this.currentSurah && this.currentVerseIndex < this.currentSurah.verses.length - 1) {
-              this.isPlayingTranslation = false;
-              this.playNextVerse();
-            } else {
-              this.stop();
-            }
-          },
-        });
-        
-        console.log('✅ TTS initiated for Pickthall translation');
-      } else {
-        console.log('🔊 No translation text available');
-        this.state = {
-          ...this.state,
-          isPlaying: false,
-          isPlayingTranslation: false
-        };
-        this.notifyListeners();
-        
-        // Move to next verse if no translation
-        if (this.currentSurah && this.currentVerseIndex < this.currentSurah.verses.length - 1) {
-          this.playNextVerse();
-        } else {
-          await this.stop();
-        }
-      }
-      
-    } catch (error) {
-      console.error('❌ Error playing translation:', error);
-      this.isPlayingTranslation = false; // Reset flag on error
-      // Move to next verse if translation fails
-      if (this.currentSurah && this.currentVerseIndex < this.currentSurah.verses.length - 1) {
-        this.playNextVerse();
-      } else {
-        await this.stop();
-      }
-    }
-  }
-
   private onPlaybackStatusUpdate = async (status: any) => {
-    console.log('🎵 Playback status update:', status);
-    
     if (status.isLoaded) {
-      console.log('🎵 Audio is loaded, updating state...');
       this.state = {
         ...this.state,
         duration: status.durationMillis || 0,
@@ -617,79 +533,40 @@ class AudioService {
         isPlaying: status.isPlaying || false
       };
 
-      console.log('🎵 Updated state:', this.state);
-
       // If playback finished
-      console.log(`🔍 Checking if verse finished - didJustFinish: ${status.didJustFinish}, position: ${status.positionMillis}, duration: ${status.durationMillis}`);
-      if (status.didJustFinish) {
-        console.log('✅ Arabic recitation finished completely!');
-
-        // Prevent processing the same finish event multiple times
-        if (this.isProcessingFinish) {
-          console.log('⚠️ Already processing finish event, skipping duplicate...');
-          return;
-        }
-        this.isProcessingFinish = true;
-
-        // Prevent multiple simultaneous calls
-        if (this.isPlayingTranslation) {
-          console.log('🔊 Translation already playing, skipping...');
-          this.isProcessingFinish = false;
-          return;
-        }
+      if (status.didJustFinish && !this.isProcessingFinish) {
+        this.isProcessingFinish = true; // Prevent duplicate calls
+        console.log('🎵 Verse finished, checking for next verse...');
+        console.log('📖 Current surah context:', this.currentSurah ? `${this.currentSurah.nameTransliterated} (${this.currentVerseIndex + 1}/${this.currentSurah.verses.length})` : 'None');
         
-        // Prevent overlapping verse transitions
-        if (this.isTransitioning) {
-          console.log('🔄 Already transitioning to next verse, skipping...');
-          this.isProcessingFinish = false;
-          return;
-        }
-
-        // If translation is enabled and we have a current verse, play translation
-        console.log(`🔊 Translation check - playTranslation: ${this.playTranslation}, hasSurah: ${!!this.currentSurah}, currentVerse: ${this.state.currentVerse}`);
-        if (this.playTranslation && this.currentSurah && this.state.currentVerse) {
-          console.log('✅ Translation enabled! Starting English translation...');
+        // Check if we're in continuous playback mode
+        if (this.currentSurah && this.currentVerseIndex < this.currentSurah.verses.length - 1) {
+          console.log('⏭️ Auto-advancing to next verse...');
           
-          // Keep verse highlighted during transition by maintaining state
+          // Small delay to ensure clean transition
+          setTimeout(async () => {
+            try {
+              await this.playNextVerse();
+            } catch (error) {
+              console.error('❌ Error in auto-advance:', error);
+            } finally {
+              this.isProcessingFinish = false;
+            }
+          }, 100);
+        } else {
+          console.log('🎵 End of surah or single verse playback');
+          this.isProcessingFinish = false;
           this.state = {
             ...this.state,
-            isPlaying: false, // Arabic finished
-            isPlayingTranslation: true, // Starting translation
-            currentVerse: this.state.currentVerse, // Keep verse highlighted
-            currentChapter: this.state.currentChapter
+            isPlaying: false,
+            currentVerse: null,
+            currentChapter: null
           };
           this.notifyListeners();
-          
-          // No delay - start TTS immediately
-          this.isPlayingTranslation = true; // Set flag to prevent simultaneous playback
-          this.isProcessingFinish = false; // Reset before async operation
-          await this.playTranslationForCurrentVerse();
-        } else {
-          // No TTS - move to next verse immediately with no delay
-          if (!this.playTranslation) {
-            console.log('⏭️ Translation DISABLED - moving immediately to next verse');
-          }
-          if (this.currentSurah && this.currentVerseIndex < this.currentSurah.verses.length - 1) {
-            // Start next verse immediately for seamless playback
-            this.isProcessingFinish = false; // Reset before calling playNextVerse
-            this.playNextVerse(); // No delay for faster continuous playback
-          } else {
-            console.log('🎵 End of surah');
-            this.isProcessingFinish = false;
-            this.state = {
-              ...this.state,
-              isPlaying: false,
-              currentVerse: null,
-              currentChapter: null,
-              isPlayingTranslation: false
-            };
-          }
         }
       }
 
       this.notifyListeners();
-    } else {
-      console.log('🎵 Audio not loaded in status update:', status);
     }
   };
 
@@ -708,9 +585,18 @@ class AudioService {
     this.currentSurah = null;
     this.currentVerseIndex = 0;
     this.currentReciterAudioUrl = undefined;
-    this.isPlayingTranslation = false;
     this.isTransitioning = false;
     this.isProcessingFinish = false;
+    if (this.nextSound) {
+      try {
+        const status = await this.nextSound.getStatusAsync();
+        if (status.isLoaded) {
+          await this.nextSound.unloadAsync();
+        }
+      } catch {}
+      this.nextSound = null;
+      this.nextPreparedVerseIndex = -1;
+    }
   }
 }
 

@@ -1,43 +1,44 @@
-import React from 'react';
-import { useFonts } from 'expo-font';
-import { 
-  NotoNaskhArabic_400Regular,
-  NotoNaskhArabic_700Bold 
-} from '@expo-google-fonts/noto-naskh-arabic';
-import { 
-  Amiri_400Regular,
-  Amiri_400Regular_Italic,
-  Amiri_700Bold,
-  Amiri_700Bold_Italic 
+import {
+    Amiri_400Regular,
+    Amiri_400Regular_Italic,
+    Amiri_700Bold,
+    Amiri_700Bold_Italic
 } from '@expo-google-fonts/amiri';
-import { 
-  ScheherazadeNew_400Regular,
-  ScheherazadeNew_700Bold 
-} from '@expo-google-fonts/scheherazade-new';
-import { 
-  NotoSansArabic_100Thin,
-  NotoSansArabic_200ExtraLight,
-  NotoSansArabic_300Light,
-  NotoSansArabic_400Regular,
-  NotoSansArabic_500Medium,
-  NotoSansArabic_600SemiBold,
-  NotoSansArabic_700Bold,
-  NotoSansArabic_800ExtraBold,
-  NotoSansArabic_900Black 
+import {
+    CormorantGaramond_300Light,
+    CormorantGaramond_300Light_Italic,
+    CormorantGaramond_400Regular,
+    CormorantGaramond_400Regular_Italic,
+    CormorantGaramond_500Medium,
+    CormorantGaramond_500Medium_Italic,
+    CormorantGaramond_600SemiBold,
+    CormorantGaramond_600SemiBold_Italic,
+    CormorantGaramond_700Bold,
+    CormorantGaramond_700Bold_Italic,
+} from '@expo-google-fonts/cormorant-garamond';
+import {
+    NotoNaskhArabic_400Regular,
+    NotoNaskhArabic_700Bold
+} from '@expo-google-fonts/noto-naskh-arabic';
+import {
+    NotoSansArabic_100Thin,
+    NotoSansArabic_200ExtraLight,
+    NotoSansArabic_300Light,
+    NotoSansArabic_400Regular,
+    NotoSansArabic_500Medium,
+    NotoSansArabic_600SemiBold,
+    NotoSansArabic_700Bold,
+    NotoSansArabic_800ExtraBold,
+    NotoSansArabic_900Black
 } from '@expo-google-fonts/noto-sans-arabic';
 import {
-  CormorantGaramond_300Light,
-  CormorantGaramond_300Light_Italic,
-  CormorantGaramond_400Regular,
-  CormorantGaramond_400Regular_Italic,
-  CormorantGaramond_500Medium,
-  CormorantGaramond_500Medium_Italic,
-  CormorantGaramond_600SemiBold,
-  CormorantGaramond_600SemiBold_Italic,
-  CormorantGaramond_700Bold,
-  CormorantGaramond_700Bold_Italic,
-} from '@expo-google-fonts/cormorant-garamond';
-import { View, Text, ActivityIndicator } from 'react-native';
+    ScheherazadeNew_400Regular,
+    ScheherazadeNew_700Bold
+} from '@expo-google-fonts/scheherazade-new';
+import { useFonts } from 'expo-font';
+// Removed expo-splash-screen to disable native splash handling
+import React, { useEffect } from 'react';
+import { ActivityIndicator, Text, View } from 'react-native';
 
 interface FontLoaderProps {
   children: React.ReactNode;
@@ -82,6 +83,10 @@ export default function FontLoader({ children }: FontLoaderProps) {
     'CormorantGaramond-Bold': CormorantGaramond_700Bold,
     'CormorantGaramond-BoldItalic': CormorantGaramond_700Bold_Italic,
   });
+
+  useEffect(() => {
+    // No splash screen to hide; render fallback until fonts load
+  }, [fontsLoaded]);
 
   if (!fontsLoaded) {
     return (

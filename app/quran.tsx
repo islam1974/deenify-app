@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, Alert, Animated } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Dimensions, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -11,20 +11,32 @@ import { Colors, Fonts } from '@/constants/theme';
 import { useTheme } from '@/contexts/ThemeContext';
 import QuranService, { Chapter, ChapterWithVerses, Verse } from '@/services/QuranService';
 import AudioService from '@/services/AudioService';
-import { QuranSettingsProvider, useQuranSettings } from '@/contexts/QuranSettingsContext';
+import { useQuranSettings } from '@/contexts/QuranSettingsContext';
 import TajweedText from '@/components/TajweedText';
 import TajweedLegend from '@/components/TajweedLegend';
 
-const { width: screenWidth } = Dimensions.get('window');
-const scaleFactor = screenWidth / 375;
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const IS_IPAD = Platform.OS === 'ios' ? Boolean((Platform as any).isPad) : SCREEN_WIDTH >= 768;
+const IS_SMALL_PHONE = SCREEN_WIDTH < 400;
+const READING_POSITIONS_KEY = 'quran_reading_positions_v1';
 
-type BottomTab = 'play' | 'autoscroll' | 'fonts' | 'dashboard';
+type ReadingPosition = {
+  chapterId: number;
+  scrollY: number;
+  lastPlayedVerse: number | null;
+  timestamp: number;
+  reciter: string;
+  translator: string;
+  font: string;
+};
+
+type BottomTab = 'dashboard' | 'play' | 'tajweed' | 'fonts';
 
 function QuranScreenContent() {
   const router = useRouter();
   const { theme } = useTheme();
   const colors = Colors[((theme as 'light' | 'dark') ?? 'light' as 'light' | 'dark') ?? 'light'];
-  const { settings, getReciterOptions, getTranslatorOptions, getFontOptions, toggleTranslation, toggleArabic, updateReciter, updateTranslator, togglePlayTranslation, updateFont } = useQuranSettings();
+  const { settings, getReciterOptions, getTranslatorOptions, getFontOptions, toggleTranslation, toggleArabic, updateReciter, updateTranslator, updateFont, toggleTajweed } = useQuranSettings();
   const reciterOptions = getReciterOptions();
   const translatorOptions = getTranslatorOptions();
   const fontOptions = getFontOptions();
@@ -41,22 +53,81 @@ function QuranScreenContent() {
   const [playedVerses, setPlayedVerses] = useState<Map<number, Set<number>>>(new Map());
   
   // Bottom Tab Navigation State
+  const activeTabRef = useRef<BottomTab>('play');
   const [activeTab, setActiveTab] = useState<BottomTab>('play');
-  const [autoScrollSpeed, setAutoScrollSpeed] = useState(1); // Speed multiplier
+  const [scrollSpeed, setScrollSpeed] = useState(1);
+  const [isAutoScrolling, setIsAutoScrolling] = useState(false);
   
-  // Scroll and animation refs
-  const reciterScrollX = useRef(new Animated.Value(0)).current;
-  const scrollViewRef = useRef<ScrollView>(null);
+  const handleTabChange = useCallback((newTab: BottomTab) => {
+    if (activeTabRef.current !== newTab) {
+      activeTabRef.current = newTab;
+      setActiveTab(newTab);
+    }
+  }, [loadChapters, loadReadingPositions]);
+  
+  // Scroll refs
+  const flatListRef = useRef<FlatList>(null);
   const [scrollPosition, setScrollPosition] = useState(0);
-  const autoScrollRef = useRef<number | null>(null); // RAF ID for auto-scroll
-  const lastScrollTimeRef = useRef<number>(0);
+  const scrollPositionRef = useRef<number>(0); // Track scroll position for auto-scroll
   const [hasRestoredPosition, setHasRestoredPosition] = useState(false);
   const [pendingScrollY, setPendingScrollY] = useState<number | null>(null);
+  const scrollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const readingPositionsRef = useRef<Record<string, ReadingPosition>>({});
+  const [initialChapterResolved, setInitialChapterResolved] = useState(false);
+
+  const persistReadingPositions = useCallback(async () => {
+    try {
+      await AsyncStorage.setItem(READING_POSITIONS_KEY, JSON.stringify(readingPositionsRef.current));
+    } catch (error) {
+      console.error('Error persisting reading positions:', error);
+    }
+  }, []);
+
+  const loadReadingPositions = useCallback(async () => {
+    try {
+      const storedPositions = await AsyncStorage.getItem(READING_POSITIONS_KEY);
+      if (storedPositions) {
+        readingPositionsRef.current = JSON.parse(storedPositions);
+      } else {
+        readingPositionsRef.current = {};
+      }
+
+      // Migrate legacy single-position storage if present
+      const legacyPosition = await AsyncStorage.getItem('quran_reading_position');
+      if (legacyPosition) {
+        const parsedLegacy = JSON.parse(legacyPosition);
+        if (parsedLegacy?.chapterId) {
+          readingPositionsRef.current[String(parsedLegacy.chapterId)] = {
+            chapterId: parsedLegacy.chapterId,
+            scrollY: parsedLegacy.scrollY ?? 0,
+            lastPlayedVerse: parsedLegacy.lastPlayedVerse ?? null,
+            timestamp: parsedLegacy.timestamp ?? Date.now(),
+            reciter: parsedLegacy.lastReciter ?? settings.selectedReciter,
+            translator: settings.selectedTranslator,
+            font: settings.selectedFont,
+          };
+          await AsyncStorage.removeItem('quran_reading_position');
+          await persistReadingPositions();
+        }
+      }
+    } catch (error) {
+      console.error('Error loading reading positions:', error);
+      readingPositionsRef.current = {};
+    }
+  }, [persistReadingPositions, settings.selectedFont, settings.selectedReciter, settings.selectedTranslator]);
+
+  const getSavedPositionForChapter = useCallback((chapterId: number): ReadingPosition | null => {
+    return readingPositionsRef.current[String(chapterId)] ?? null;
+  }, []);
 
   // Load chapters on mount
   useEffect(() => {
-    loadChapters();
-    loadLastReadingPosition();
+    const initialize = async () => {
+      await loadReadingPositions();
+      await loadChapters();
+    };
+
+    initialize();
     
     // Set up audio listener
     const unsubscribe = AudioService.addListener((newState) => {
@@ -76,9 +147,10 @@ function QuranScreenContent() {
     
     return () => {
       unsubscribe();
-      // Cleanup auto-scroll on unmount
-      if (autoScrollRef.current !== null) {
-        cancelAnimationFrame(autoScrollRef.current);
+      if (scrollIntervalRef.current !== null) {
+        clearInterval(scrollIntervalRef.current);
+        scrollIntervalRef.current = null;
+        setIsAutoScrolling(false);
       }
     };
   }, []);
@@ -86,94 +158,70 @@ function QuranScreenContent() {
   // Save position when leaving the screen
   useEffect(() => {
     return () => {
-      // Save on unmount only
-      if (selectedChapter && scrollPosition >= 0) {
-        const positionData = {
-          chapterId: selectedChapter.id,
-          scrollY: scrollPosition,
-          lastPlayedVerse: audioState.currentVerse || null,
-          lastReciter: settings.selectedReciter,
-          timestamp: Date.now()
-        };
-        AsyncStorage.setItem('quran_reading_position', JSON.stringify(positionData))
-          .then(() => console.log('📖 Saved position on unmount:', positionData))
-          .catch(err => console.error('Error saving on unmount:', err));
+      saveReadingPosition();
+    };
+  }, [saveReadingPosition]);
+
+  // Load chapter when selected OR when translator/font changes
+  useEffect(() => {
+    if (selectedChapter) {
+      const skipPositionRestore = !!currentChapter; // Skip position restore if chapter already loaded
+      loadChapter(selectedChapter.id, skipPositionRestore);
+    }
+    
+    // Cleanup: stop audio when chapter changes
+    return () => {
+      // This will run before the next chapter loads
+      const currentState = AudioService.getCurrentState();
+      if (currentState.isPlaying && currentState.currentChapter !== selectedChapter?.id) {
+        AudioService.stop().catch(err => console.error('Error stopping audio on chapter change:', err));
       }
     };
-  }, [selectedChapter, scrollPosition, audioState.currentVerse, settings.selectedReciter]);
-
-  // Update translation settings when they change
-  useEffect(() => {
-    console.log(`🔊 Updating AudioService translation settings: playTranslation=${settings.playTranslation}, translator=${settings.selectedTranslator}`);
-    AudioService.setTranslationSettings(settings.playTranslation, settings.selectedTranslator);
-  }, [settings.playTranslation, settings.selectedTranslator]);
-
-  // Load chapter when selected
-  useEffect(() => {
-    if (selectedChapter) {
-      loadChapter(selectedChapter.id);
-    }
-  }, [selectedChapter]);
-
-  // Reload chapter when translator or font changes
-  useEffect(() => {
-    if (selectedChapter) {
-      loadChapter(selectedChapter.id);
-    }
-  }, [settings.selectedTranslator, settings.selectedFont]);
+  }, [selectedChapter?.id, settings.selectedTranslator, settings.selectedFont]);
 
 
   // Removed scroll handler - player is now always visible
 
   // Save reading position to AsyncStorage
-  const saveReadingPosition = async () => {
+  const saveReadingPosition = useCallback(async () => {
     try {
       if (selectedChapter && scrollPosition !== undefined) {
-        const positionData = {
+        const key = String(selectedChapter.id);
+        const positionData: ReadingPosition = {
           chapterId: selectedChapter.id,
           scrollY: scrollPosition,
-          lastPlayedVerse: audioState.currentVerse || null,
-          lastReciter: settings.selectedReciter,
-          timestamp: Date.now()
+          lastPlayedVerse: audioState.currentVerse ?? null,
+          timestamp: Date.now(),
+          reciter: settings.selectedReciter,
+          translator: settings.selectedTranslator,
+          font: settings.selectedFont,
         };
-        await AsyncStorage.setItem('quran_reading_position', JSON.stringify(positionData));
-        console.log('📖 Saved reading position:', positionData);
+
+        readingPositionsRef.current = {
+          ...readingPositionsRef.current,
+          [key]: positionData,
+        };
+
+        await persistReadingPositions();
       }
     } catch (error) {
       console.error('Error saving reading position:', error);
     }
-  };
-
-  // Load last reading position from AsyncStorage
-  const loadLastReadingPosition = async () => {
-    try {
-      const savedPosition = await AsyncStorage.getItem('quran_reading_position');
-      if (savedPosition) {
-        const positionData = JSON.parse(savedPosition);
-        console.log('📖 Loaded reading position:', positionData);
-        return positionData;
-      }
-    } catch (error) {
-      console.error('Error loading reading position:', error);
-    }
-    return null;
-  };
-
-  // Restore scroll position after chapter loads
-  const restoreScrollPosition = (scrollY: number) => {
-    // Wait longer for verses to fully render, especially with Tajweed
-    setTimeout(() => {
-      if (scrollViewRef.current) {
-        scrollViewRef.current.scrollTo({ y: scrollY, animated: true });
-        console.log('📖 Restored scroll position to:', scrollY);
-      }
-    }, 800); // Increased delay to allow full render
-  };
+  }, [
+    selectedChapter,
+    scrollPosition,
+    audioState.currentVerse,
+    settings.selectedReciter,
+    settings.selectedTranslator,
+    settings.selectedFont,
+    persistReadingPositions,
+  ]);
 
   // Save position whenever scroll changes (with throttling)
   const handleScroll = useCallback((event: any) => {
     const yOffset = event.nativeEvent.contentOffset.y;
     setScrollPosition(yOffset);
+    scrollPositionRef.current = yOffset; // Update ref for auto-scroll
   }, []);
 
   // Save position when chapter, scroll, or verse changes
@@ -191,178 +239,138 @@ function QuranScreenContent() {
   // Restore scroll position after verses are loaded
   useEffect(() => {
     if (currentChapter && currentChapter.verses && currentChapter.verses.length > 0 && pendingScrollY !== null && !hasRestoredPosition) {
-      console.log('📖 Verses loaded, will restore scroll to:', pendingScrollY);
-      console.log('📖 Total verses:', currentChapter.verses.length);
-      
-      // Try multiple times with increasing delays
-      const delays = [500, 1000, 1500, 2000];
-      delays.forEach((delay, index) => {
-        setTimeout(() => {
-          if (scrollViewRef.current) {
-            console.log(`📖 Scroll attempt ${index + 1} at ${delay}ms to position:`, pendingScrollY);
-            scrollViewRef.current.scrollTo({ 
-              y: pendingScrollY, 
-              animated: index === delays.length - 1 // Only animate the last one
-            });
-          }
-        }, delay);
-      });
-      
-      // Mark as restored after first attempt
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        if (flatListRef.current) {
+          flatListRef.current.scrollToOffset({ 
+            offset: pendingScrollY, 
+            animated: false
+          });
+          scrollPositionRef.current = pendingScrollY;
+        }
         setPendingScrollY(null);
         setHasRestoredPosition(true);
-      }, 2500);
+      }, 800);
+      
+      return () => clearTimeout(timer);
     }
   }, [currentChapter, pendingScrollY, hasRestoredPosition]);
 
-  const loadChapters = async () => {
+  const loadChapters = useCallback(async () => {
     try {
       setIsLoadingChapters(true);
       const chaptersData = await QuranService.getChapters();
       setChapters(chaptersData);
-      
-      // Try to restore last reading position
-      const savedPosition = await loadLastReadingPosition();
-      if (savedPosition && savedPosition.chapterId) {
-        const savedChapter = chaptersData.find(c => c.id === savedPosition.chapterId);
-        if (savedChapter) {
-          console.log('📖 Restoring last read chapter:', savedChapter.name);
-          setSelectedChapter(savedChapter);
-          // Scroll position will be restored after chapter loads
-          return;
+
+      if (!initialChapterResolved) {
+        const savedPositions = Object.values(readingPositionsRef.current);
+        const sortedByRecent = savedPositions.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+        const mostRecent = sortedByRecent[0];
+
+        if (mostRecent) {
+          const savedChapter = chaptersData.find(chapter => chapter.id === mostRecent.chapterId);
+          if (savedChapter) {
+            setSelectedChapter(savedChapter);
+            setInitialChapterResolved(true);
+            return;
+          }
         }
-      }
-      
-      // Select first chapter by default if no saved position
-      if (chaptersData.length > 0) {
-        setSelectedChapter(chaptersData[0]);
+
+        if (chaptersData.length > 0) {
+          setSelectedChapter(chaptersData[0]);
+          setInitialChapterResolved(true);
+        }
       }
     } catch (error) {
       console.error('Error loading chapters:', error);
-      Alert.alert('Error', 'Failed to load Quran chapters. Please check your internet connection.');
     } finally {
       setIsLoadingChapters(false);
     }
-  };
+  }, [initialChapterResolved]);
 
-  const loadChapter = async (chapterNumber: number, skipPositionRestore: boolean = false) => {
+  const loadChapter = useCallback(async (chapterNumber: number, skipPositionRestore: boolean = false) => {
     try {
       setIsLoading(true);
-      const chapterData = await QuranService.getChapterWithTranslation(chapterNumber, settings.selectedTranslator, settings.selectedReciter, settings.selectedFont);
+      
+      const chapterData = await QuranService.getChapterWithTranslation(
+        chapterNumber, 
+        settings.selectedTranslator, 
+        settings.selectedReciter, 
+        settings.selectedFont
+      );
       setCurrentChapter(chapterData);
       
-      // Restore scroll position if this is the saved chapter
-      if (!skipPositionRestore) {
-        const savedPosition = await loadLastReadingPosition();
-        if (savedPosition && savedPosition.chapterId === chapterNumber && savedPosition.scrollY > 100) {
-          // Show a prompt to continue from where they left off
-          Alert.alert(
-            '📖 Continue Reading?',
-            `You were previously at this position in ${selectedChapter?.nameTransliterated}. Would you like to continue from where you left off?`,
-            [
-              {
-                text: 'Start from Beginning',
-                onPress: () => {
-                  scrollViewRef.current?.scrollTo({ y: 0, animated: true });
-                  setHasRestoredPosition(true);
-                },
-                style: 'cancel'
-              },
-              {
-                text: 'Continue',
-                onPress: () => {
-                  // Set pending scroll position - will be applied after verses render
-                  setPendingScrollY(savedPosition.scrollY);
-                  
-                  // If there was a last played verse, offer to resume audio
-                  if (savedPosition.lastPlayedVerse) {
-                    setTimeout(() => {
-                      Alert.alert(
-                        '🎵 Resume Audio?',
-                        `You were listening to verse ${savedPosition.lastPlayedVerse}. Would you like to continue?`,
-                        [
-                          { text: 'No, thanks', style: 'cancel' },
-                          {
-                            text: 'Resume',
-                            onPress: async () => {
-                              if (currentChapter) {
-                                const verse = currentChapter.verses.find(v => v.verseNumber === savedPosition.lastPlayedVerse);
-                                if (verse && verse.audioUrl) {
-                                  await AudioService.playVerse(verse.audioUrl, chapterNumber, verse.verseNumber, settings.selectedReciter);
-                                }
-                              }
-                            }
-                          }
-                        ]
-                      );
-                    }, 1000);
-                  }
-                }
-              }
-            ]
-          );
+      // Only try to restore position on initial chapter load
+      if (!skipPositionRestore && !hasRestoredPosition) {
+        const savedPosition = getSavedPositionForChapter(chapterNumber);
+        if (savedPosition) {
+          setPendingScrollY(savedPosition.scrollY);
         } else {
-          setHasRestoredPosition(true);
+          setPendingScrollY(null);
         }
+        setHasRestoredPosition(true);
       }
     } catch (error) {
       console.error('Error loading chapter:', error);
-      Alert.alert('Error', 'Failed to load chapter. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [
+    settings.selectedTranslator,
+    settings.selectedReciter,
+    settings.selectedFont,
+    hasRestoredPosition,
+    getSavedPositionForChapter,
+  ]);
 
 
-  const handleChapterSelect = useCallback((chapter: Chapter) => {
-    setSelectedChapter(chapter);
-    setHasRestoredPosition(false); // Reset so we can show continue prompt for new chapter
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, []);
+  const handleChapterSelect = useCallback(async (chapter: Chapter) => {
+    try {
+      console.log('📖 Switching to new chapter:', chapter.nameTransliterated);
+
+      await saveReadingPosition();
+
+      // Stop any active audio playback when changing chapters
+      const currentState = AudioService.getCurrentState();
+      if (currentState.isPlaying || currentState.currentChapter) {
+        console.log('🛑 Stopping audio from previous chapter');
+        await AudioService.stop();
+      }
+      
+      // Reset position flag for new chapter
+      setHasRestoredPosition(false);
+      setPendingScrollY(null);
+      setSelectedChapter(chapter);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (error) {
+      console.error('Error switching chapter:', error);
+      // Still proceed with chapter change even if stop fails
+      setHasRestoredPosition(false);
+      setPendingScrollY(null);
+      setSelectedChapter(chapter);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  }, [saveReadingPosition]);
 
   const handleVersePlay = useCallback(async (verse: Verse) => {
     if (!selectedChapter) return;
     
     try {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      console.log('🎵 User clicked verse play button:', {
-        verseNumber: verse.verseNumber,
-        chapterId: selectedChapter.id,
-        reciter: settings.selectedReciter,
-        audioUrl: verse.audioUrl
+      console.log('🎵 Playing single verse (manual tap):', {
+        chapter: selectedChapter.id,
+        verse: verse.verseNumber,
+        audioUrl: verse.audioUrl,
+        reciter: settings.selectedReciter
       });
       
+      // Stop any continuous playback and clear context
+      await AudioService.stop();
+      
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       await AudioService.playVerse(verse.audioUrl!, selectedChapter.id, verse.verseNumber, settings.selectedReciter);
+      console.log('✅ Single verse play initiated');
     } catch (error) {
       console.error('❌ Error playing verse:', error);
-      
-      // More detailed error message based on error type
-      let errorMessage = 'Unable to play audio for this verse.';
-      let errorDetails = '';
-      
-      if (error instanceof Error) {
-        if (error.message.includes('timeout')) {
-          errorDetails = 'The audio file took too long to load. Please check your internet connection and try again.';
-        } else if (error.message.includes('network')) {
-          errorDetails = 'Network connectivity issue. Please check your internet connection.';
-        } else if (error.message.includes('permission')) {
-          errorDetails = 'Audio permission denied. Please check your device audio settings.';
-        } else {
-          errorDetails = `Error: ${error.message}`;
-        }
-      } else {
-        errorDetails = 'Unknown error occurred. Please try again.';
-      }
-      
-      Alert.alert(
-        'Audio Playback Error', 
-        `${errorMessage}\n\n${errorDetails}\n\nTroubleshooting:\n• Check your internet connection\n• Try a different reciter\n• Restart the app if the issue persists`,
-        [
-          { text: 'Try Again', onPress: () => handleVersePlay(verse) },
-          { text: 'OK' }
-        ]
-      );
+      Alert.alert('Audio Error', 'Failed to play audio. Please check your internet connection and try again.');
     }
   }, [selectedChapter, settings.selectedReciter]);
 
@@ -371,144 +379,104 @@ function QuranScreenContent() {
       await AudioService.stop();
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     } catch (error) {
-      console.error('❌ Error stopping audio:', error);
+      console.error('Error stopping audio:', error);
     }
   }, []);
 
   const handlePlayPause = useCallback(async () => {
     try {
-      console.log('🎵 User clicked play/pause button');
+      console.log('🎵 Play/Pause button pressed');
       const currentState = AudioService.getCurrentState();
       console.log('🎵 Current audio state:', currentState);
       
-      if (currentState.isPlaying || currentState.isPlayingTranslation) {
-        console.log('🎵 Pausing current audio...');
+      if (currentState.isPlaying) {
+        console.log('⏸️ Pausing audio...');
         await AudioService.pause();
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       } else if (currentState.currentChapter && currentState.currentVerse) {
-        console.log('🎵 Resuming current verse...');
-        // Resume current verse
+        console.log('▶️ Resuming audio...');
         await AudioService.resume();
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       } else if (currentChapter && currentChapter.verses.length > 0) {
-        console.log('🎵 Starting full surah playback with continuous recitation...');
-        // Start playing the entire surah from the beginning with selected reciter
+        console.log('🎵 Starting continuous surah playback...');
+        console.log('📖 Chapter:', currentChapter.nameTransliterated, `(${currentChapter.verses.length} verses)`);
+        console.log('🎙️ Reciter:', settings.selectedReciter);
+        
         setIsLoadingAudio(true);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         
-        // Use playFullSurah for continuous playback
         await AudioService.playFullSurah(currentChapter, settings.selectedReciter);
+        console.log('✅ Continuous playback started successfully');
       } else {
-        // No chapter loaded
-        Alert.alert(
-          'No Chapter Selected',
-          'Please select a chapter from the dropdown to start playing audio.',
-          [{ text: 'OK' }]
-        );
+        console.warn('⚠️ No chapter loaded or no verses available');
+        Alert.alert('No Chapter Selected', 'Please select a chapter to play.');
       }
     } catch (error) {
       console.error('❌ Error with play/pause:', error);
-      // Show error to user
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      Alert.alert(
-        'Audio Playback Error',
-        `Failed to play audio: ${errorMessage}\n\nPlease check your internet connection and try again.`,
-        [{ text: 'OK' }]
-      );
+      Alert.alert('Playback Error', 'Failed to start audio playback. Please try again.');
     } finally {
       setIsLoadingAudio(false);
     }
   }, [currentChapter, settings.selectedReciter]);
 
-  // Debug function to test audio directly
-  const handleDebugAudio = useCallback(async () => {
-    try {
-      console.log('🧪 Testing audio with debug function...');
-      const testUrl = 'https://www.everyayah.com/data/Alafasy_128kbps/001001.mp3';
-      await AudioService.playVerse(testUrl, 1, 1, 'alafasy');
-    } catch (error) {
-      console.error('❌ Debug audio test failed:', error);
-      Alert.alert('Debug Audio Test', `Test failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }, []);
 
-  // Test reciter availability
-  const testReciterAvailability = useCallback(async (reciterId: string) => {
-    try {
-      console.log(`🧪 Testing reciter availability: ${reciterId}`);
-      const testUrl = `https://www.everyayah.com/data/${reciterId.charAt(0).toUpperCase() + reciterId.slice(1)}_128kbps/001001.mp3`;
-      const response = await fetch(testUrl, { method: 'HEAD' });
-      return response.ok;
-    } catch (error) {
-      console.log(`❌ Reciter ${reciterId} not available:`, error);
-      return false;
-    }
-  }, []);
-
-  // Auto-scroll with requestAnimationFrame (smoother)
-  const performAutoScroll = useCallback(() => {
-    const currentTime = Date.now();
-    const deltaTime = currentTime - lastScrollTimeRef.current;
-    
-    if (deltaTime > 16) { // ~60fps
-      const scrollAmount = autoScrollSpeed * 1.5; // pixels per frame
-      
-      scrollViewRef.current?.scrollTo({
-        y: scrollPosition + scrollAmount,
-        animated: false
-      });
-      
-      setScrollPosition(prev => prev + scrollAmount);
-      lastScrollTimeRef.current = currentTime;
-    }
-    
-    autoScrollRef.current = requestAnimationFrame(performAutoScroll);
-  }, [autoScrollSpeed, scrollPosition]);
-
+  // Auto-scroll functionality using setInterval
   const startAutoScroll = useCallback(() => {
-    if (autoScrollRef.current !== null) return; // Already running
+    if (scrollIntervalRef.current !== null) {
+      return;
+    }
     
-    console.log('🔄 Starting auto-scroll with speed:', autoScrollSpeed);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
-    lastScrollTimeRef.current = Date.now();
-    autoScrollRef.current = requestAnimationFrame(performAutoScroll);
-  }, [performAutoScroll, autoScrollSpeed]);
+    if (scrollPositionRef.current === 0 && scrollPosition > 0) {
+      scrollPositionRef.current = scrollPosition;
+    }
+    
+    scrollIntervalRef.current = setInterval(() => {
+      const newPos = scrollPositionRef.current + scrollSpeed;
+      scrollPositionRef.current = newPos;
+      
+      flatListRef.current?.scrollToOffset({ 
+        offset: newPos, 
+        animated: false 
+      });
+    }, 50);
+    
+    setIsAutoScrolling(true);
+  }, [scrollSpeed, scrollPosition]);
 
   const stopAutoScroll = useCallback(() => {
-    if (autoScrollRef.current === null) return; // Not running
+    if (scrollIntervalRef.current === null) {
+      return;
+    }
     
-    console.log('⏸️ Stopping auto-scroll');
-    cancelAnimationFrame(autoScrollRef.current);
-    autoScrollRef.current = null;
+    clearInterval(scrollIntervalRef.current);
+    scrollIntervalRef.current = null;
+    setIsAutoScrolling(false);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, []);
 
-  const handleSpeedChange = useCallback((speed: number) => {
-    setAutoScrollSpeed(speed);
+  const handleSpeedChange = useCallback((newSpeed: number) => {
+    const wasScrolling = scrollIntervalRef.current !== null;
+    
+    if (wasScrolling) {
+      clearInterval(scrollIntervalRef.current!);
+      scrollIntervalRef.current = null;
+    }
+    
+    setScrollSpeed(newSpeed);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     
-    // If auto-scrolling, restart with new speed
-    const wasScrolling = autoScrollRef.current !== null;
     if (wasScrolling) {
-      stopAutoScroll();
-      setTimeout(() => startAutoScroll(), 50);
+      scrollIntervalRef.current = setInterval(() => {
+        scrollPositionRef.current += newSpeed;
+        flatListRef.current?.scrollToOffset({ 
+          offset: scrollPositionRef.current, 
+          animated: false 
+        });
+      }, 50);
     }
-  }, [startAutoScroll, stopAutoScroll]);
-
-  // Auto-scroll when audio is playing (including translation)
-  useEffect(() => {
-    const isAudioActive = audioState.isPlaying || audioState.isPlayingTranslation;
-    const isScrolling = autoScrollRef.current !== null;
-    
-    if (isAudioActive && !isScrolling) {
-      console.log('🎵 Audio started playing, starting auto-scroll');
-      startAutoScroll();
-    } else if (!isAudioActive && isScrolling) {
-      console.log('⏸️ Audio stopped/paused, stopping auto-scroll');
-      stopAutoScroll();
-    }
-  }, [audioState.isPlaying, audioState.isPlayingTranslation, startAutoScroll, stopAutoScroll]);
+  }, []);
 
   // Handle translation toggle
   const handleToggleTranslation = useCallback(() => {
@@ -522,46 +490,47 @@ function QuranScreenContent() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, [toggleArabic]);
 
-  // Get dynamic font sizes based on settings
-  const getFontSizes = useCallback(() => {
-    const baseLineHeightArabic = 44;
-    const baseLineHeightTranslation = 24;
+  // Memoize font sizes to avoid recalculation on every render
+  const fontSizes = useMemo(() => {
+    const baseLineHeightArabic = 48;
+    const baseLineHeightTranslation = 30;
+    const scale = IS_IPAD ? 3.0 : IS_SMALL_PHONE ? 1.15 : 1.35;
     
     switch (settings.fontSize) {
       case 'small':
         return {
-          arabic: 20,
-          translation: 12,
-          lineHeightArabic: baseLineHeightArabic * (20/28),
-          lineHeightTranslation: baseLineHeightTranslation * (12/16),
+          arabic: 24 * scale,
+          translation: 12 * scale,
+          lineHeightArabic: baseLineHeightArabic * (28/30) * scale,
+          lineHeightTranslation: baseLineHeightTranslation * (13/16) * scale,
         };
       case 'medium':
         return {
-          arabic: 24,
-          translation: 14,
-          lineHeightArabic: baseLineHeightArabic * (24/28),
-          lineHeightTranslation: baseLineHeightTranslation * (14/16),
+          arabic: 30 * scale,
+          translation: 14 * scale,
+          lineHeightArabic: baseLineHeightArabic * (34/30) * scale,
+          lineHeightTranslation: baseLineHeightTranslation * (15/16) * scale,
         };
       case 'large':
         return {
-          arabic: 28,
-          translation: 16,
-          lineHeightArabic: baseLineHeightArabic,
-          lineHeightTranslation: baseLineHeightTranslation,
+          arabic: 36 * scale,
+          translation: 16.5 * scale,
+          lineHeightArabic: baseLineHeightArabic * (40/30) * scale,
+          lineHeightTranslation: baseLineHeightTranslation * (17/16) * scale,
         };
       case 'extra-large':
         return {
-          arabic: 32,
-          translation: 18,
-          lineHeightArabic: baseLineHeightArabic * (32/28),
-          lineHeightTranslation: baseLineHeightTranslation * (18/16),
+          arabic: 42 * scale,
+          translation: 19 * scale,
+          lineHeightArabic: baseLineHeightArabic * (46/30) * scale,
+          lineHeightTranslation: baseLineHeightTranslation * (18/16) * scale,
         };
       default:
         return {
-          arabic: 28,
-          translation: 16,
-          lineHeightArabic: baseLineHeightArabic,
-          lineHeightTranslation: baseLineHeightTranslation,
+          arabic: 48 * scale,
+          translation: 21 * scale,
+          lineHeightArabic: baseLineHeightArabic * 1.2 * scale,
+          lineHeightTranslation: baseLineHeightTranslation * 1.2 * scale,
         };
     }
   }, [settings.fontSize]);
@@ -573,61 +542,87 @@ function QuranScreenContent() {
       value: chapter.name
     })), [chapters]);
 
-  const currentReciter = useMemo(() => {
-    const foundReciter = reciterOptions.find(r => r.id === settings.selectedReciter);
-    const fallbackReciter = reciterOptions[0] || {
-      id: 'alafasy',
-      name: 'Mishary Rashid Alafasy',
-      arabicName: 'مشاري راشد العفاسي',
-      description: 'Popular reciter with clear pronunciation',
-      audioUrl: 'https://verses.quran.com/7/'
-    };
-    return foundReciter || fallbackReciter;
-  }, [reciterOptions, settings.selectedReciter]);
+  const selectedDropdownItem = useMemo(() => 
+    dropdownItems.find(item => item.id === selectedChapter?.id) || null, 
+    [dropdownItems, selectedChapter?.id]
+  );
 
-  // Auto-scroll reciter name
-  useEffect(() => {
-    const startAnimation = () => {
-      reciterScrollX.setValue(0);
-      Animated.loop(
-        Animated.timing(reciterScrollX, {
-          toValue: -150,
-          duration: 8000,
-          useNativeDriver: true,
-        }),
-        { resetBeforeIteration: true }
-      ).start();
-    };
+  // Create a chapter lookup map for O(1) access
+  const chapterMap = useMemo(() => {
+    const map = new Map<number, Chapter>();
+    chapters.forEach(chapter => map.set(chapter.id, chapter));
+    return map;
+  }, [chapters]);
 
-    if (selectedChapter) {
-      startAnimation();
-    }
 
-    return () => {
-      reciterScrollX.stopAnimation();
-    };
-  }, [selectedChapter, currentReciter]);
+  // Memoize font family separately
+  const currentFontFamily = useMemo(() => {
+    const currentFont = fontOptions.find(f => f.id === settings.selectedFont);
+    return currentFont?.fontFamily || 'NotoNaskhArabic-Regular';
+  }, [fontOptions, settings.selectedFont]);
 
-  const renderVerse = useCallback((verse: Verse) => {
-    // Highlight verse if it's currently playing (either Arabic or translation)
-    const isCurrentVerse = (audioState.isPlaying || audioState.isPlayingTranslation) && 
+  // Optimized verse rendering for FlatList
+  const renderVerse = useCallback(({ item: verse }: { item: Verse }) => {
+    const isCurrentVerse = audioState.isPlaying && 
                           audioState.currentVerse === verse.verseNumber && 
                           audioState.currentChapter === selectedChapter?.id;
     const chapterPlayedVerses = playedVerses.get(selectedChapter?.id || 0) || new Set();
     const isPlayedVerse = chapterPlayedVerses.has(verse.verseNumber);
-    const fontSizes = getFontSizes();
+
+    // Check if this is verse 1 and contains Bismillah (except Surah 9)
+    const bismillahVariations = [
+      'بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ',
+      'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ',
+      'بِسْمِ اللهِ الرَّحْمٰنِ الرَّحِيمِ',
+      'بسم الله الرحمن الرحيم',
+      'بِسۡمِ ٱللَّهِ ٱلرَّحۡمَٰنِ ٱلرَّحِيمِ'
+    ];
     
-    // Get current font family
-    const currentFont = fontOptions.find(f => f.id === settings.selectedFont);
-    const fontFamily = currentFont?.fontFamily || 'NotoNaskhArabic-Regular';
+    const isFirstVerse = verse.verseNumber === 1;
+    const verseText = verse.text || 'Arabic text not available';
+    
+    let bismillahText = '';
+    let remainingText = verseText;
+    
+    if (isFirstVerse && selectedChapter?.id !== 9) {
+      // Debug: Log the verse text to see what we're working with
+      console.log(`Chapter ${selectedChapter?.id} verse 1:`, verseText.substring(0, 60));
+      
+      // Try to find and extract Bismillah
+      for (const bismillah of bismillahVariations) {
+        if (verseText.includes(bismillah)) {
+          bismillahText = bismillah;
+          remainingText = verseText.replace(bismillah, '').trim();
+          console.log(`✅ Found Bismillah variation in chapter ${selectedChapter?.id}`);
+          break;
+        }
+      }
+      
+      // If no exact match found, look for "الرَّحِيمِ" or "الرحيم" which ends Bismillah
+      if (!bismillahText) {
+        const rahimVariations = ['ٱلرَّحِيمِ', 'الرَّحِيمِ', 'الرحيم'];
+        for (const rahim of rahimVariations) {
+          const rahimIndex = verseText.indexOf(rahim);
+          if (rahimIndex !== -1 && rahimIndex < 50) {
+            // Found Rahim within first 50 chars, likely the end of Bismillah
+            bismillahText = verseText.substring(0, rahimIndex + rahim.length).trim();
+            remainingText = verseText.substring(rahimIndex + rahim.length).trim();
+            console.log(`✅ Extracted Bismillah by finding Rahim in chapter ${selectedChapter?.id}`);
+            break;
+          }
+        }
+      }
+      
+      console.log(`Bismillah: "${bismillahText}"`);
+      console.log(`Remaining: "${remainingText.substring(0, 20)}..."`);
+    }
 
     return (
-      <View key={verse.id} style={[
-        styles.verseContainer, 
-        { 
-          backgroundColor: '#000000' // Always black background
-        }
-      ]}>
+      <TouchableOpacity 
+        style={[styles.verseContainer, { backgroundColor: '#000000' }]}
+        onPress={() => handleVersePlay(verse)}
+        activeOpacity={0.7}
+      >
         <View style={styles.verseHeader}>
           <View style={[
             styles.verseNumber, 
@@ -660,61 +655,87 @@ function QuranScreenContent() {
               />
             </View>
           )}
+          
+          {/* Play button for verse */}
+          <TouchableOpacity 
+            style={styles.versePlayButton}
+            onPress={() => handleVersePlay(verse)}
+            activeOpacity={0.6}
+          >
+            <IconSymbol 
+              name={isCurrentVerse && audioState.isPlaying ? "pause.circle.fill" : "play.circle.fill"}
+              size={28} 
+              color={isCurrentVerse ? '#4CAF50' : '#2196F3'} 
+            />
+          </TouchableOpacity>
         </View>
 
-        {settings.showArabic && (
-          <TajweedText
-            text={verse.text || 'Arabic text not available'}
-            enableTajweed={settings.enableTajweed}
-            isDarkMode={theme === 'dark'}
-            style={[
-              styles.arabicText, 
-              { 
-                fontSize: fontSizes.arabic,
-                lineHeight: fontSizes.lineHeightArabic,
-                color: isCurrentVerse ? '#4CAF50' : isPlayedVerse ? '#FFEB3B' : '#FFFFFF',
-                fontFamily: fontFamily
-              }
-            ]}
-          />
+        {/* Render Bismillah separately if it exists */}
+        {bismillahText && (
+          <View style={{ marginBottom: 16 }}>
+            <TajweedText
+              text={bismillahText}
+              enableTajweed={settings.enableTajweed}
+              isDarkMode={theme === 'dark'}
+              style={[
+                styles.arabicText, 
+                { 
+                  fontSize: fontSizes.arabic,
+                  lineHeight: fontSizes.lineHeightArabic,
+                  color: isCurrentVerse ? '#4CAF50' : isPlayedVerse ? '#FFEB3B' : '#FFFFFF',
+                  fontFamily: currentFontFamily,
+                  textAlign: 'center',
+                  flexWrap: 'wrap',
+                  flexShrink: 1,
+                }
+              ]}
+            />
+          </View>
+        )}
+
+        {/* Render remaining text */}
+        {remainingText && (
+          <View style={{ alignSelf: 'stretch' }}>
+            <TajweedText
+              text={remainingText}
+              enableTajweed={settings.enableTajweed}
+              isDarkMode={theme === 'dark'}
+              style={[
+                styles.arabicText, 
+                { 
+                  fontSize: fontSizes.arabic,
+                  lineHeight: fontSizes.lineHeightArabic,
+                  color: isCurrentVerse ? '#4CAF50' : isPlayedVerse ? '#FFEB3B' : '#FFFFFF',
+                  fontFamily: currentFontFamily,
+                  flexWrap: 'wrap',
+                  flexShrink: 1,
+                }
+              ]}
+            />
+          </View>
         )}
         
-        {settings.showTranslation && (
-          <Text style={[
-            styles.translationText, 
-            { 
-              fontSize: fontSizes.translation,
-              lineHeight: fontSizes.lineHeightTranslation,
-              color: isCurrentVerse ? '#4CAF50' : isPlayedVerse ? '#FFEB3B' : '#FFFFFF'
-            }
-          ]}>
-            {verse.translation || 'Translation not available'}
-          </Text>
-        )}
-      </View>
+        <Text style={[
+          styles.translationText, 
+          { 
+            fontSize: fontSizes.translation,
+            lineHeight: fontSizes.lineHeightTranslation,
+            color: isCurrentVerse ? '#4CAF50' : isPlayedVerse ? '#FFEB3B' : '#FFFFFF'
+          }
+        ]}>
+          {verse.translation || 'Translation not available'}
+        </Text>
+      </TouchableOpacity>
     );
-  }, [audioState, selectedChapter, playedVerses, getFontSizes, settings.showArabic, settings.showTranslation, settings.selectedFont, settings.enableTajweed, theme, fontOptions]);
+  }, [audioState, selectedChapter, playedVerses, fontSizes, settings.enableTajweed, theme, currentFontFamily, handleVersePlay]);
 
-  return (
-    <LinearGradient
-      colors={[colors.gradientStart, colors.gradientEnd]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 0 }}
-      style={styles.container}
-    >
-      <ScrollView 
-        ref={scrollViewRef}
-        style={styles.scrollView}
-        contentContainerStyle={{ 
-          paddingTop: insets.top + 10,
-          paddingBottom: selectedChapter ? 200 : 20 
-        }}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        stickyHeaderIndices={[1]}
-      >
+  // Key extractor for FlatList
+  const keyExtractor = useCallback((item: Verse) => `verse-${item.id}`, []);
 
-      <View style={styles.header}>
+  // FlatList header component
+  const renderHeader = useCallback(() => (
+    <>
+      <View style={[styles.header, { backgroundColor: '#000000' }]}>
         <Text style={[styles.title, { color: colors.text }]}>
           القرآن الكريم
         </Text>
@@ -723,88 +744,9 @@ function QuranScreenContent() {
         </Text>
       </View>
 
-      {/* Sticky Chapter Selector */}
-      <View style={[styles.stickyChapterSelector, { 
-        backgroundColor: colors.background,
-        borderBottomColor: colors.border,
-        paddingTop: insets.top + 20
-      }]}>
-        <Dropdown
-          items={dropdownItems}
-          selectedItem={dropdownItems.find(item => item.id === selectedChapter?.id) || null}
-          onSelect={(item) => {
-            const chapter = chapters.find(c => c.id === item.id);
-            if (chapter) handleChapterSelect(chapter);
-          }}
-          placeholder="Select a chapter"
-          disabled={isLoadingChapters}
-        />
-      </View>
-
-      {/* Display Controls */}
-      <View style={styles.controlsContainer}>
-        {/* Display Options */}
-        <View style={styles.displayOptions}>
-          <TouchableOpacity
-            style={[
-              styles.optionButton,
-              { 
-                backgroundColor: settings.showArabic ? colors.tint : colors.background,
-                borderColor: colors.border
-              }
-            ]}
-            onPress={handleToggleArabic}
-          >
-            <Text style={[
-              styles.optionButtonText,
-              { color: settings.showArabic ? colors.background : colors.text }
-            ]}>
-              Arabic
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.optionButton,
-              { 
-                backgroundColor: settings.showTranslation ? colors.tint : colors.background,
-                borderColor: colors.border
-              }
-            ]}
-            onPress={handleToggleTranslation}
-          >
-            <Text style={[
-              styles.optionButtonText,
-              { color: settings.showTranslation ? colors.background : colors.text }
-            ]}>
-              Translation
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Tajweed Legend Button */}
-        {settings.showArabic && (
-          <View style={styles.tajweedLegendContainer}>
-            <TajweedLegend />
-          </View>
-        )}
-      </View>
-
-      {/* Chapter Info */}
-      {selectedChapter && (
-        <View style={[styles.chapterInfo, { backgroundColor: '#1C0118' }]}>
-          <Text style={[styles.chapterTitle, { color: 'white' }]}>
-            {selectedChapter.nameTransliterated}
-          </Text>
-          <Text style={[styles.chapterSubtitle, { color: 'white' }]}>
-            {selectedChapter.name} • {selectedChapter.versesCount} verses • {selectedChapter.revelationPlace}
-          </Text>
-        </View>
-      )}
-
       {/* Loading State */}
       {isLoading && (
-        <View style={styles.loadingContainer}>
+        <View style={[styles.loadingContainer, { backgroundColor: '#000000' }]}>
           <ActivityIndicator size="large" color={colors.tint} />
           <Text style={[styles.loadingText, { color: colors.text }]}>
             Loading chapter...
@@ -812,37 +754,105 @@ function QuranScreenContent() {
         </View>
       )}
 
-      {/* Verses */}
-      {currentChapter && !isLoading && (
-        <View style={styles.versesContainer}>
-          {currentChapter.verses.map(renderVerse)}
-        </View>
-      )}
-
-
       {/* Empty State */}
       {!isLoading && !currentChapter && !isLoadingChapters && (
-        <View style={styles.emptyContainer}>
+        <View style={[styles.emptyContainer, { backgroundColor: '#000000' }]}>
           <IconSymbol name="book" size={64} color={colors.icon} />
           <Text style={[styles.emptyText, { color: colors.text }]}>
             Select a chapter to begin reading
           </Text>
         </View>
       )}
-    </ScrollView>
+    </>
+  ), [colors, isLoadingChapters, isLoading, currentChapter]);
 
-      {/* Bottom Tabs Navigation - Always visible */}
+  return (
+    <LinearGradient
+      colors={[colors.gradientStart, colors.gradientEnd]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 0 }}
+      style={styles.container}
+    >
+      <FlatList
+        ref={flatListRef}
+        data={currentChapter?.verses || []}
+        renderItem={renderVerse}
+        keyExtractor={keyExtractor}
+        ListHeaderComponent={renderHeader}
+        contentContainerStyle={{ 
+          paddingTop: insets.top + 180,
+          paddingBottom: selectedChapter ? 280 : 20 
+        }}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={10}
+        updateCellsBatchingPeriod={50}
+        initialNumToRender={5}
+        windowSize={10}
+      />
+
+      {/* Sticky Chapter Selector */}
+      <View style={[styles.stickyChapterSelector, { 
+        backgroundColor: colors.background,
+        borderBottomColor: colors.border,
+        paddingTop: insets.top + 16,
+      }]}>
+        <Dropdown
+          items={dropdownItems}
+          selectedItem={selectedDropdownItem}
+          onSelect={(item) => {
+            const chapter = chapterMap.get(item.id);
+            if (chapter) {
+              setIsLoading(true);
+              handleChapterSelect(chapter);
+            }
+          }}
+          placeholder="Select a chapter"
+          disabled={isLoadingChapters || isLoading}
+        />
+      </View>
+
+      {/* Bottom Tabs Navigation */}
       {selectedChapter && (
         <View 
           style={[
             styles.bottomTabsContainer,
             {
-              backgroundColor: '#1C0118',
-              borderColor: colors.border,
-              paddingBottom: insets.bottom, // Account for safe area
+              backgroundColor: colors.background,
+              borderTopColor: colors.border,
+              paddingBottom: insets.bottom,
             }
           ]}
         >
+          {/* Audio Status Bar */}
+          {audioState.isPlaying && audioState.currentVerse && (
+            <View style={[
+              styles.audioStatusBar, 
+              { 
+                backgroundColor: audioState.currentChapter === selectedChapter?.id 
+                  ? colors.tint + '20' 
+                  : '#FF5722' + '20',
+                borderBottomColor: colors.border 
+              }
+            ]}>
+              <View style={styles.audioStatusContent}>
+                <IconSymbol 
+                  name="waveform" 
+                  size={16} 
+                  color={audioState.currentChapter === selectedChapter?.id ? colors.tint : '#FF5722'} 
+                />
+                <Text style={[styles.audioStatusText, { color: colors.text }]}>
+                  {audioState.currentChapter === selectedChapter?.id ? (
+                    `Now Playing: Verse ${audioState.currentVerse} of ${currentChapter?.verses.length}`
+                  ) : (
+                    `Playing from different chapter - Select the playing chapter or stop audio`
+                  )}
+                </Text>
+              </View>
+            </View>
+          )}
+          
           {/* Tab Buttons */}
           <View style={styles.tabButtons}>
             <TouchableOpacity
@@ -851,18 +861,19 @@ function QuranScreenContent() {
                 activeTab === 'dashboard' && styles.tabButtonActive
               ]}
               onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 router.push('/(drawer)');
               }}
               activeOpacity={0.8}
             >
               <IconSymbol 
                 name="house.fill" 
-                size={20} 
-                color={activeTab === 'dashboard' ? '#9C27B0' : 'rgba(255,255,255,0.5)'} 
+                size={IS_IPAD ? 40 : 30} 
+                color={activeTab === 'dashboard' ? colors.tint : colors.icon} 
               />
               <Text style={[
                 styles.tabButtonText,
-                { color: activeTab === 'dashboard' ? '#9C27B0' : 'rgba(255,255,255,0.5)' }
+                { color: activeTab === 'dashboard' ? colors.tint : colors.icon }
               ]}>
                 Dashboard
               </Text>
@@ -874,43 +885,50 @@ function QuranScreenContent() {
                 activeTab === 'play' && styles.tabButtonActive
               ]}
               onPress={() => {
-                setActiveTab('play');
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                handlePlayPause();
               }}
               activeOpacity={0.8}
+              disabled={isLoadingAudio}
             >
-              <IconSymbol 
-                name="play.circle.fill" 
-                size={20} 
-                color={activeTab === 'play' ? '#4CAF50' : 'rgba(255,255,255,0.5)'} 
-              />
+              {isLoadingAudio ? (
+                <ActivityIndicator size="small" color={colors.tint} />
+              ) : (
+                <IconSymbol 
+                  name={audioState.isPlaying ? "pause.circle.fill" : "play.circle.fill"}
+                  size={IS_IPAD ? 40 : 30} 
+                  color={audioState.isPlaying ? '#FF5722' : colors.icon} 
+                />
+              )}
               <Text style={[
                 styles.tabButtonText,
-                { color: activeTab === 'play' ? '#4CAF50' : 'rgba(255,255,255,0.5)' }
+                { color: audioState.isPlaying ? '#FF5722' : isLoadingAudio ? colors.tint : colors.icon }
               ]}>
-                Play
+                {isLoadingAudio ? 'Loading...' : audioState.isPlaying ? 'Pause' : 'Play Surah'}
               </Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[
                 styles.tabButton,
-                activeTab === 'autoscroll' && styles.tabButtonActive
+                activeTab === 'tajweed' && styles.tabButtonActive
               ]}
               onPress={() => {
-                setActiveTab('autoscroll');
+                const newTab = activeTab === 'tajweed' ? 'play' : 'tajweed';
+                handleTabChange(newTab);
               }}
-              activeOpacity={0.8}
+              activeOpacity={0.6}
             >
               <IconSymbol 
-                name="arrow.down.circle.fill" 
-                size={20} 
-                color={activeTab === 'autoscroll' ? '#2196F3' : 'rgba(255,255,255,0.5)'} 
+                name="paintbrush.fill" 
+                size={IS_IPAD ? 40 : 30} 
+                color={activeTab === 'tajweed' ? colors.tint : colors.icon} 
               />
               <Text style={[
                 styles.tabButtonText,
-                { color: activeTab === 'autoscroll' ? '#2196F3' : 'rgba(255,255,255,0.5)' }
+                { color: activeTab === 'tajweed' ? colors.tint : colors.icon }
               ]}>
-                Auto Scroll
+                Tajweed
               </Text>
             </TouchableOpacity>
 
@@ -920,201 +938,84 @@ function QuranScreenContent() {
                 activeTab === 'fonts' && styles.tabButtonActive
               ]}
               onPress={() => {
-                setActiveTab('fonts');
+                const newTab = activeTab === 'fonts' ? 'play' : 'fonts';
+                handleTabChange(newTab);
               }}
-              activeOpacity={0.8}
+              activeOpacity={0.6}
             >
               <IconSymbol 
                 name="textformat" 
-                size={20} 
-                color={activeTab === 'fonts' ? '#FF9800' : 'rgba(255,255,255,0.5)'} 
+                size={IS_IPAD ? 40 : 30} 
+                color={activeTab === 'fonts' ? colors.tint : colors.icon} 
               />
               <Text style={[
                 styles.tabButtonText,
-                { color: activeTab === 'fonts' ? '#FF9800' : 'rgba(255,255,255,0.5)' }
+                { color: activeTab === 'fonts' ? colors.tint : colors.icon }
               ]}>
                 Fonts
               </Text>
             </TouchableOpacity>
           </View>
 
-          {/* Tab Content */}
-          <View style={styles.tabContent}>
-            {/* Play Tab */}
-            {activeTab === 'play' && (
-              <View style={styles.playTabContent}>
-                <View style={styles.compactPlayerHeader}>
-                  <View style={styles.compactPlayerInfo}>
-                    <Text style={[styles.compactPlayerTitle, { color: 'white' }]}>
-                      {audioState.isPlaying || audioState.isPlayingTranslation ? 
-                        (audioState.isPlayingTranslation && !audioState.isPlaying ? 'Playing Translation' : 'Now Playing') 
-                        : 'Audio Player'}
-                    </Text>
-                    
-                    {/* Auto-Scrolling Reciter Name */}
-                    <View style={styles.scrollingReciterContainer}>
-                      <View style={styles.scrollingReciterMask}>
-                        <Animated.View 
-                          style={[
-                            styles.scrollingReciterContent,
-                            {
-                              transform: [{
-                                translateX: reciterScrollX
-                              }]
-                            }
-                          ]}
-                        >
-                          <Text style={[styles.scrollingReciterName, { color: 'rgba(255,255,255,0.9)' }]}>
-                            {currentReciter?.name || 'Mishary Rashid Alafasy'}
-                          </Text>
-                          <Text style={[styles.scrollingReciterArabic, { color: 'rgba(255,255,255,0.7)' }]}>
-                            • {currentReciter?.arabicName || 'مشاري راشد العفاسي'}
-                          </Text>
-                          {/* Duplicate for seamless loop */}
-                          <Text style={[styles.scrollingReciterName, { color: 'rgba(255,255,255,0.9)' }]}>
-                            {currentReciter?.name || 'Mishary Rashid Alafasy'}
-                          </Text>
-                          <Text style={[styles.scrollingReciterArabic, { color: 'rgba(255,255,255,0.7)' }]}>
-                            • {currentReciter?.arabicName || 'مشاري راشد العفاسي'}
-                          </Text>
-                        </Animated.View>
-                      </View>
-                    </View>
-                    
-                    {audioState.currentVerse ? (
-                      <Text style={[styles.compactPlayerSubtitle, { color: 'rgba(255,255,255,0.6)' }]}>
-                        {selectedChapter.nameTransliterated} - Verse {audioState.currentVerse}
-                      </Text>
-                    ) : (
-                      <Text style={[styles.compactPlayerSubtitle, { color: 'rgba(255,255,255,0.6)' }]}>
-                        {selectedChapter.nameTransliterated}
-                      </Text>
-                    )}
-                  </View>
-                </View>
-
-                {/* Compact Controls */}
-                <View style={styles.compactControls}>
-                  <TouchableOpacity
-                    style={[styles.compactPlayButton, { backgroundColor: isLoadingAudio ? '#2196F3' : audioState.isPlaying ? '#FF5722' : '#4CAF50' }]}
-                    onPress={handlePlayPause}
-                    activeOpacity={0.8}
-                    disabled={isLoadingAudio}
-                  >
-                    <IconSymbol
-                      name={isLoadingAudio ? "arrow.clockwise" : audioState.isPlaying ? "pause.fill" : "play.fill"}
-                      size={22}
-                      color="white"
-                    />
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity
-                    style={[styles.compactStopButton, { backgroundColor: '#666' }]}
-                    onPress={handleStopAudio}
-                    activeOpacity={0.8}
-                    disabled={isLoadingAudio}
-                  >
-                    <IconSymbol
-                      name="stop.fill"
-                      size={18}
-                      color="white"
-                    />
-                  </TouchableOpacity>
-                  
-                  {/* Progress Bar */}
-                  {(() => {
-                    const chapterPlayedVerses = playedVerses.get(selectedChapter.id) || new Set();
-                    return chapterPlayedVerses.size > 0 && (
-                      <View style={styles.compactProgressContainer}>
-                        <View style={[styles.compactProgressBar, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                          <View 
-                            style={[
-                              styles.compactProgressFill, 
-                              { 
-                                backgroundColor: '#4CAF50',
-                                width: `${(chapterPlayedVerses.size / selectedChapter.versesCount) * 100}%`
-                              }
-                            ]} 
-                          />
-                        </View>
-                      </View>
-                    );
-                  })()}
-                </View>
-              </View>
-            )}
-
-            {/* Auto Scroll Tab */}
-            {activeTab === 'autoscroll' && (
-              <View style={styles.autoScrollTabContent}>
-                <View style={styles.autoScrollHeader}>
-                  <Text style={[styles.tabContentTitle, { color: 'white' }]}>
-                    Auto Scroll Speed
+          {/* Tab Content - Only show when there's content */}
+          {selectedChapter && (activeTab === 'tajweed' || activeTab === 'fonts') && (
+            <View style={styles.tabContent}>
+              {/* Tajweed Tab */}
+              {activeTab === 'tajweed' && (
+              <View style={styles.scrollTabContent}>
+                <View style={styles.scrollHeader}>
+                  <Text style={[styles.tabContentTitle, { color: colors.text }]}>
+                    Tajweed Settings
                   </Text>
-                  <View style={[
-                    styles.autoScrollStatusBadge,
-                    { backgroundColor: (audioState.isPlaying || audioState.isPlayingTranslation) ? '#4CAF50' : 'rgba(255,255,255,0.2)' }
+                </View>
+                
+                <TouchableOpacity
+                  style={[
+                    styles.scrollActionButton,
+                    { 
+                      backgroundColor: settings.enableTajweed ? colors.tint : colors.background,
+                      borderColor: colors.border,
+                      borderWidth: settings.enableTajweed ? 0 : 1,
+                    }
+                  ]}
+                  onPress={() => {
+                    toggleTajweed();
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <IconSymbol 
+                    name={settings.enableTajweed ? "checkmark.circle.fill" : "circle"} 
+                    size={20} 
+                    color={settings.enableTajweed ? "white" : colors.text} 
+                  />
+                  <Text style={[
+                    styles.scrollActionButtonText,
+                    { color: settings.enableTajweed ? "white" : colors.text }
                   ]}>
-                    <IconSymbol
-                      name={(audioState.isPlaying || audioState.isPlayingTranslation) ? "arrow.down.circle.fill" : "pause.circle.fill"}
-                      size={12}
-                      color="white"
-                    />
-                    <Text style={styles.autoScrollStatusText}>
-                      {(audioState.isPlaying || audioState.isPlayingTranslation) ? 'Active' : 'Inactive'}
-                    </Text>
+                    {settings.enableTajweed ? 'Tajweed Enabled' : 'Enable Tajweed'}
+                  </Text>
+                </TouchableOpacity>
+
+                {settings.enableTajweed && (
+                  <View style={{ marginTop: 16 }}>
+                    <TajweedLegend />
                   </View>
-                </View>
-                
-                <Text style={[styles.autoScrollHint, { color: 'rgba(255,255,255,0.6)' }]}>
-                  Auto-scroll activates when audio is playing
-                </Text>
-                
-                <View style={styles.autoScrollControls}>
-                  <View style={styles.speedControlContainer}>
-                    <Text style={[styles.speedLabel, { color: 'rgba(255,255,255,0.8)' }]}>
-                      Current Speed: {autoScrollSpeed}x
-                    </Text>
-                    <View style={styles.speedButtons}>
-                      {[0.5, 1, 1.5, 2, 3].map((speed) => (
-                        <TouchableOpacity
-                          key={speed}
-                          style={[
-                            styles.speedButton,
-                            { 
-                              backgroundColor: autoScrollSpeed === speed ? '#2196F3' : 'rgba(255,255,255,0.1)',
-                              borderColor: autoScrollSpeed === speed ? '#2196F3' : 'rgba(255,255,255,0.3)'
-                            }
-                          ]}
-                          onPress={() => handleSpeedChange(speed)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={[
-                            styles.speedButtonText,
-                            { color: autoScrollSpeed === speed ? 'white' : 'rgba(255,255,255,0.7)' }
-                          ]}>
-                            {speed}x
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </View>
-                </View>
+                )}
               </View>
             )}
 
             {/* Fonts Tab */}
             {activeTab === 'fonts' && (
               <View style={styles.fontsTabContent}>
-                <Text style={[styles.tabContentTitle, { color: 'white' }]}>
+                <Text style={[styles.tabContentTitle, { color: colors.text }]}>
                   Quran Fonts
                 </Text>
-                
                 <ScrollView 
                   horizontal 
                   showsHorizontalScrollIndicator={false}
                   style={styles.fontsList}
                   contentContainerStyle={styles.fontsListContent}
+                  removeClippedSubviews={true}
                 >
                   {fontOptions.map((font) => (
                     <TouchableOpacity
@@ -1122,45 +1023,45 @@ function QuranScreenContent() {
                       style={[
                         styles.fontCard,
                         {
-                          backgroundColor: settings.selectedFont === font.id ? '#FF9800' : 'rgba(255,255,255,0.1)',
-                          borderColor: settings.selectedFont === font.id ? '#FF9800' : 'rgba(255,255,255,0.2)'
+                          backgroundColor: settings.selectedFont === font.id ? colors.tint : colors.background,
+                          borderColor: colors.border
                         }
                       ]}
                       onPress={() => {
                         updateFont(font.id);
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                       }}
-                      activeOpacity={0.7}
+                      activeOpacity={0.6}
                     >
                       <Text style={[
                         styles.fontPreview,
                         {
                           fontFamily: font.fontFamily,
-                          color: settings.selectedFont === font.id ? 'white' : 'rgba(255,255,255,0.9)'
+                          color: settings.selectedFont === font.id ? 'white' : colors.text
                         }
                       ]}>
                         بِسْمِ اللَّهِ
                       </Text>
                       <Text 
-                        numberOfLines={2}
+                        numberOfLines={1}
                         style={[
                           styles.fontCardName,
-                          { color: settings.selectedFont === font.id ? 'white' : 'rgba(255,255,255,0.8)' }
+                          { color: settings.selectedFont === font.id ? 'white' : colors.text }
                         ]}
                       >
                         {font.name}
                       </Text>
                       {settings.selectedFont === font.id && (
                         <View style={styles.selectedBadge}>
-                          <IconSymbol name="checkmark.circle.fill" size={20} color="white" />
+                          <IconSymbol name="checkmark.circle.fill" size={16} color="white" />
                         </View>
                       )}
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
               </View>
-            )}
-          </View>
+              )}
+            </View>
+          )}
         </View>
       )}
     </LinearGradient>
@@ -1173,63 +1074,45 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   stickyChapterSelector: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingBottom: 12,
     borderBottomWidth: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 5,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  backButtonContainer: {
-    position: 'absolute',
-    left: 0,
-    zIndex: 10,
     elevation: 10,
-  },
-  backButton: {
-    width: Math.max(40, 44 * scaleFactor),
-    height: Math.max(40, 44 * scaleFactor),
-    borderRadius: Math.max(20, 22 * scaleFactor),
-    borderWidth: 2,
-    backgroundColor: '#2E933C',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 6,
+    zIndex: 1000,
   },
   header: {
-    padding: 20,
+    padding: 16,
+    paddingVertical: 8,
     alignItems: 'center',
-    marginTop: Math.max(60, 70 * scaleFactor),
+    marginTop: 0,
   },
   title: {
-    fontSize: 28,
+    fontSize: IS_IPAD ? 62 : 36,
     fontWeight: 'bold',
     fontFamily: Fonts.primary,
-    marginBottom: 5,
+    marginBottom: 4,
     textAlign: 'center',
+    letterSpacing: IS_IPAD ? 1 : 0.5,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: IS_IPAD ? 30 : 16,
     fontFamily: Fonts.roboto,
     opacity: 0.7,
     textAlign: 'center',
+    fontWeight: '400',
   },
   controlsContainer: {
-    padding: 20,
-    paddingTop: 10,
-    gap: 15,
+    padding: 12,
+    paddingTop: 32,
+    gap: 10,
   },
   displayOptions: {
     flexDirection: 'row',
@@ -1253,19 +1136,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   chapterInfo: {
-    margin: 20,
-    padding: 16,
-    borderRadius: 12,
+    marginHorizontal: 12,
+    marginTop: 8,
+    marginBottom: 12,
+    padding: 10,
+    borderRadius: 10,
     alignItems: 'center',
   },
   chapterTitle: {
-    fontSize: 20,
+    fontSize: IS_IPAD ? 34 : 22,
     fontFamily: Fonts.roboto,
     fontWeight: '900',
     marginBottom: 4,
   },
   chapterSubtitle: {
-    fontSize: 14,
+    fontSize: IS_IPAD ? 22 : 15,
     fontFamily: Fonts.roboto,
     opacity: 0.9,
     marginBottom: 12,
@@ -1276,24 +1161,34 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 10,
-    fontSize: 16,
+    fontSize: IS_IPAD ? 20 : 16,
     fontFamily: Fonts.roboto,
   },
   versesContainer: {
-    padding: 20,
+    padding: 12,
     paddingTop: 10,
+    overflow: 'visible',
   },
   verseContainer: {
-    marginBottom: 20,
-    padding: 16,
-    borderRadius: 12,
+    marginBottom: 4,
+    paddingTop: 20,
+    paddingHorizontal: 10,
+    paddingBottom: 12,
+    borderRadius: 8,
     backgroundColor: '#000000', // Always black background
+    overflow: 'visible',
   },
   verseHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 12,
+    minHeight: 36,
+    paddingTop: 4,
+  },
+  versePlayButton: {
+    padding: 4,
+    marginLeft: 'auto',
   },
   verseNumber: {
     width: 32,
@@ -1323,21 +1218,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   arabicText: {
-    fontSize: 28,
+    fontSize: IS_IPAD ? 44 : 30,
     fontFamily: Fonts.primary,
     fontWeight: '900',
-    lineHeight: 44,
+    marginTop: 4,
     marginBottom: 8,
     textAlign: 'right',
     direction: 'rtl',
     color: '#FFFFFF', // Default white text
+    includeFontPadding: false,
+    paddingTop: 2,
+    flexWrap: 'wrap',
+    width: '100%',
   },
   translationText: {
-    fontSize: 16,
+    fontSize: IS_IPAD ? 22 : 16,
     fontFamily: Fonts.roboto,
-    lineHeight: 24,
     opacity: 0.9,
     color: '#FFFFFF', // Default white text
+    includeFontPadding: false,
+    flexWrap: 'wrap',
+    width: '100%',
   },
   emptyContainer: {
     alignItems: 'center',
@@ -1345,7 +1246,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     marginTop: 16,
-    fontSize: 16,
+    fontSize: IS_IPAD ? 22 : 16,
     fontFamily: Fonts.roboto,
     textAlign: 'center',
     opacity: 0.7,
@@ -1356,134 +1257,152 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    borderTopWidth: 1,
+    borderTopWidth: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 8,
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  audioStatusBar: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+  },
+  audioStatusContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  audioStatusText: {
+    fontSize: 13,
+    fontFamily: Fonts.roboto,
+    fontWeight: '600',
   },
   tabButtons: {
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
+    borderBottomColor: 'rgba(0,0,0,0.05)',
   },
   tabButton: {
     flex: 1,
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    gap: 4,
+    paddingVertical: 14,
+    gap: 6,
   },
   tabButtonActive: {
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
+    borderBottomWidth: 4,
+    borderBottomColor: '#4CAF50',
   },
   tabButtonText: {
-    fontSize: 10,
+    fontSize: IS_IPAD ? 18 : 14,
+    fontWeight: '700',
     fontFamily: Fonts.roboto,
-    fontWeight: '600',
   },
   tabContent: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
   },
-  playTabContent: {
-    // Container for play tab content
+  tabContentTitle: {
+    fontSize: IS_IPAD ? 24 : 18,
+    fontFamily: Fonts.roboto,
+    fontWeight: '700',
+    marginBottom: 12,
   },
-  autoScrollTabContent: {
-    gap: 8,
+  // Scroll Tab
+  scrollTabContent: {
+    gap: 12,
   },
-  autoScrollHeader: {
+  scrollHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 4,
+    marginBottom: 0,
   },
-  autoScrollStatusBadge: {
+  scrollStatusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 12,
   },
-  autoScrollStatusText: {
-    fontSize: 10,
+  scrollStatusText: {
+    fontSize: 11,
     fontFamily: Fonts.roboto,
     fontWeight: '600',
     color: 'white',
   },
-  autoScrollHint: {
-    fontSize: 10,
-    fontFamily: Fonts.roboto,
-    marginBottom: 8,
-  },
-  fontsTabContent: {
-    gap: 8,
-  },
-  tabContentTitle: {
-    fontSize: 12,
-    fontFamily: Fonts.roboto,
-    fontWeight: '700',
-    marginBottom: 0,
-  },
-  autoScrollControls: {
-    gap: 8,
-  },
-  speedControlContainer: {
-    gap: 8,
-  },
-  speedLabel: {
-    fontSize: 11,
-    fontFamily: Fonts.roboto,
-    fontWeight: '600',
-  },
-  speedButtons: {
+  speedControls: {
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'space-between',
   },
   speedButton: {
     flex: 1,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   speedButtonText: {
-    fontSize: 12,
+    fontSize: 14,
     fontFamily: Fonts.roboto,
     fontWeight: '600',
   },
+  scrollControlButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  scrollActionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  scrollActionButtonText: {
+    color: 'white',
+    fontSize: IS_IPAD ? 18 : 16,
+    fontFamily: Fonts.roboto,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  // Fonts Tab
+  fontsTabContent: {
+    gap: 14,
+  },
   fontsList: {
-    maxHeight: 120,
+    maxHeight: IS_IPAD ? 160 : 130,
   },
   fontsListContent: {
-    gap: 10,
-    paddingRight: 10,
+    gap: IS_IPAD ? 24 : 16,
+    paddingRight: 16,
   },
   fontCard: {
-    width: 120,
-    height: 100,
-    borderRadius: 8,
-    borderWidth: 1,
-    padding: 12,
+    width: IS_IPAD ? 160 : 120,
+    height: IS_IPAD ? 120 : 90,
+    borderRadius: 16,
+    borderWidth: 2,
+    padding: IS_IPAD ? 14 : 10,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
   },
   fontPreview: {
-    fontSize: 20,
-    marginBottom: 8,
+    fontSize: IS_IPAD ? 34 : 24,
+    marginBottom: 10,
     textAlign: 'center',
   },
   fontCardName: {
-    fontSize: 9,
+    fontSize: IS_IPAD ? 16 : 13,
     fontFamily: Fonts.roboto,
     fontWeight: '600',
     textAlign: 'center',
@@ -1493,91 +1412,8 @@ const styles = StyleSheet.create({
     top: 4,
     right: 4,
   },
-  compactPlayerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  compactPlayerInfo: {
-    flex: 1,
-  },
-  compactPlayerTitle: {
-    fontSize: 12,
-    fontFamily: Fonts.roboto,
-    fontWeight: '700',
-    marginBottom: 1,
-  },
-  compactPlayerSubtitle: {
-    fontSize: 10,
-    fontFamily: Fonts.roboto,
-    opacity: 0.8,
-  },
-  scrollingReciterContainer: {
-    height: 14,
-    marginVertical: 1,
-    overflow: 'hidden',
-  },
-  scrollingReciterMask: {
-    flex: 1,
-    overflow: 'hidden',
-  },
-  scrollingReciterContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 5,
-  },
-  scrollingReciterName: {
-    fontSize: 11,
-    fontFamily: Fonts.roboto,
-    fontWeight: '600',
-    marginRight: 6,
-  },
-  scrollingReciterArabic: {
-    fontSize: 10,
-    fontFamily: Fonts.primary,
-    fontWeight: '500',
-    textAlign: 'right',
-    direction: 'rtl',
-  },
-  compactControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-  },
-  compactPlayButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  compactStopButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  compactProgressContainer: {
-    flex: 1,
-    marginLeft: 6,
-  },
-  compactProgressBar: {
-    height: 3,
-    borderRadius: 1.5,
-    overflow: 'hidden',
-  },
-  compactProgressFill: {
-    height: '100%',
-    borderRadius: 1.5,
-  },
 });
 
 export default function QuranScreen() {
-  return (
-    <QuranSettingsProvider>
-      <QuranScreenContent />
-    </QuranSettingsProvider>
-  );
+  return <QuranScreenContent />;
 }

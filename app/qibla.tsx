@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Animated, Platform, ActivityIndicator, Alert, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Animated, Easing, Platform, ActivityIndicator, Alert, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -123,13 +123,13 @@ export default function QiblaScreen() {
           
           setHeading(angle);
           
-          // Smooth rotation animation
+          // Smooth rotation animation with easing
           // Rotate compass opposite to heading so North marker points to actual north
-          Animated.spring(compassRotation, {
+          Animated.timing(compassRotation, {
             toValue: -angle,
+            duration: 100, // Smooth 100ms transition
             useNativeDriver: true,
-            tension: 10,
-            friction: 8,
+            easing: Easing.out(Easing.cubic), // Smooth deceleration curve
           }).start();
         });
       } else {
@@ -148,28 +148,45 @@ export default function QiblaScreen() {
     }
   };
 
+  /**
+   * Calculate Qibla direction from any location worldwide
+   * 
+   * This uses the forward azimuth formula which works anywhere on Earth:
+   * - Uses spherical trigonometry to find the shortest path to Mecca
+   * - Works for all coordinates (North/South poles, equators, etc.)
+   * - Handles date line crossings correctly
+   * - Accounts for Earth's curvature (doesn't use flat map projection)
+   * 
+   * @param lat - User's latitude (degrees)
+   * @param lon - User's longitude (degrees)
+   */
   const calculateQiblaDirection = (lat: number, lon: number) => {
-    // Kaaba coordinates (Mecca, Saudi Arabia)
+    // Kaaba coordinates (Mecca, Saudi Arabia) - fixed reference point
     const kaabaLat = 21.4225;
     const kaabaLon = 39.8262;
     
-    // Convert to radians
+    // Convert to radians for trigonometric calculations
     const lat1 = lat * Math.PI / 180;
     const lat2 = kaabaLat * Math.PI / 180;
     const dLon = (kaabaLon - lon) * Math.PI / 180;
     
-    // Calculate bearing using the forward azimuth formula
-    // This gives us the initial bearing (forward azimuth) which is what we need for Qibla
+    // Forward azimuth formula - calculates initial bearing to Mecca
+    // This works for ANY two points on a sphere (Earth)
+    // y = sin(difference in longitude) * cos(destination latitude)
+    // x = cos(starting latitude) * sin(destination latitude) - 
+    //     sin(starting latitude) * cos(destination latitude) * cos(difference in longitude)
     const y = Math.sin(dLon) * Math.cos(lat2);
     const x = Math.cos(lat1) * Math.sin(lat2) - 
               Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
     
+    // Convert bearing to degrees (0-360, where 0 = North)
     let qiblaDirection = Math.atan2(y, x) * 180 / Math.PI;
     
-    // Normalize to 0-360 degrees
+    // Normalize to 0-360 degrees (ensures positive values)
     qiblaDirection = (qiblaDirection + 360) % 360;
     
     // Calculate distance to Kaaba using Haversine formula
+    // Also works worldwide - calculates great circle distance on a sphere
     const R = 6371; // Earth's radius in km
     const dLat = lat2 - lat1;
     const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -7,6 +7,10 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Fonts } from '@/constants/theme';
 import { useTheme } from '@/contexts/ThemeContext';
 import HijriCalendar from '@/components/HijriCalendar';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const IS_IPAD = Platform.OS === 'ios' ? Boolean((Platform as any).isPad) : SCREEN_WIDTH >= 768;
+const IS_SMALL_PHONE = SCREEN_WIDTH < 380;
 
 export default function HijriCalendarScreen() {
   const { theme } = useTheme();
@@ -27,7 +31,7 @@ export default function HijriCalendarScreen() {
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <IconSymbol name="chevron.left" size={20} color="#2C3E50" />
+          <IconSymbol name="chevron.left" size={IS_IPAD ? 32 : 24} color="#0B1120" />
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
@@ -53,23 +57,27 @@ const styles = StyleSheet.create({
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 2,
+    marginBottom: IS_IPAD ? 6 : 2,
   },
   backText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#2C3E50',
-    marginLeft: 3,
+    fontSize: IS_IPAD ? 22 : IS_SMALL_PHONE ? 16 : 18,
+    fontFamily: Fonts.secondary,
+    fontWeight: '800',
+    color: '#0B1120',
+    marginLeft: 6,
+    letterSpacing: 0.4,
   },
   headerTitleContainer: {
     alignItems: 'center',
     marginTop: 0,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2C3E50',
-    marginBottom: 1,
+    fontSize: IS_IPAD ? 44 : IS_SMALL_PHONE ? 26 : 32,
+    fontFamily: Fonts.secondary,
+    fontWeight: '900',
+    color: '#0B1120',
+    marginBottom: 4,
+    letterSpacing: IS_IPAD ? 1.2 : 0.8,
   },
   headerSubtitle: {
     fontSize: 13,

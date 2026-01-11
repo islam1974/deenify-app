@@ -1,15 +1,23 @@
 {
   "expo": {
-    "name": "deenify-app",
+    "name": "Deenify",
     "slug": "deenify-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/deenify-logo.png",
     "scheme": "deenifyapp",
     "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#07C589",
+      "resizeMode": "contain"
+    },
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
+      "icon": "./assets/images/Deenify_Icon.png",
+      "splash": {
+        "backgroundColor": "#07C589",
+        "resizeMode": "contain"
+      },
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "This app needs access to location to provide accurate prayer times for your area.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to location to provide accurate prayer times for your area.",
@@ -17,30 +25,21 @@
         "NSPhotoLibraryAddUsageDescription": "This app needs permission to save screenshots to your photo library.",
         "NSPhotoLibraryUsageDescription": "This app needs permission to access your photo library."
       },
-      "bundleIdentifier": "com.anonymous.deenifyapp",
-      "splash": {
-        "image": "./assets/images/CC08C3E3-DEEC-444C-AA11-0CC79607F1E3.png",
-        "resizeMode": "contain",
-        "backgroundColor": "#3a5a40",
-        "imageWidth": 1200,
-        "text": "وَمَن يَتَوَكَّلْ عَلَى اللَّهِ فَهُوَ حَسْبُهُ",
-        "textColor": "#000000",
-        "textSize": 24
-      },
-      "icon": "./assets/images/deenify-logo.png"
+      "bundleIdentifier": "com.deenify.app"
     },
     "android": {
+      "splash": {
+        "backgroundColor": "#07C589",
+        "resizeMode": "contain"
+      },
       "adaptiveIcon": {
         "backgroundColor": "#3a5a40",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "foregroundImage": "./assets/images/Deenify_Icon.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "monochromeImage": "./assets/images/Deenify_Icon.png"
       },
-      "splash": {
-        "image": "./assets/images/CC08C3E3-DEEC-444C-AA11-0CC79607F1E3.png",
-        "resizeMode": "contain",
-        "backgroundColor": "#3a5a40",
-        "imageWidth": 1200
+      "notification": {
+        "icon": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
@@ -52,25 +51,11 @@
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE"
       ],
-      "package": "com.anonymous.deenifyapp",
-      "notification": {
-        "icon": "./assets/images/android-icon-monochrome.png",
-        "color": "#3a5a40",
-        "androidMode": "default"
-      }
+      "package": "com.deenify.app"
     },
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
-    },
-    "splash": {
-      "image": "./assets/images/CC08C3E3-DEEC-444C-AA11-0CC79607F1E3.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#3a5a40",
-      "imageWidth": 1200,
-      "text": "وَمَن يَتَوَكَّلْ عَلَى اللَّهِ فَهُوَ حَسْبُهُ",
-      "textColor": "#000000",
-      "textSize": 24
     },
     "plugins": [
       "expo-router",
@@ -83,7 +68,8 @@
           "savePhotosPermission": "Allow $(PRODUCT_NAME) to save screenshots to your photos.",
           "isAccessMediaLocationEnabled": true
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,

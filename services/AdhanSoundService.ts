@@ -1,6 +1,5 @@
-import { Audio } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
+import { Audio } from 'expo-av';
 
 export interface AdhanSoundSettings {
   enabled: boolean;

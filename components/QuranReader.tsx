@@ -51,16 +51,16 @@ export default function QuranReader({
         };
       case 'large':
         return {
-          arabic: 28,
+          arabic: 30,
           translation: 16,
-          lineHeightArabic: baseLineHeightArabic * (28/24),
+          lineHeightArabic: baseLineHeightArabic * (30/24),
           lineHeightTranslation: baseLineHeightTranslation,
         };
       case 'extra-large':
         return {
-          arabic: 32,
+          arabic: 36,
           translation: 18,
-          lineHeightArabic: baseLineHeightArabic * (32/24),
+          lineHeightArabic: baseLineHeightArabic * (36/24),
           lineHeightTranslation: baseLineHeightTranslation * (18/16),
         };
       default:

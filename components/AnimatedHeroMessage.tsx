@@ -1,10 +1,13 @@
-import React, { useEffect, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, Animated, Dimensions } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useTheme } from '@/contexts/ThemeContext';
 import { Colors } from '@/constants/theme';
+import { useTheme } from '@/contexts/ThemeContext';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { Animated, Dimensions, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
+const IS_IPAD = width >= 768;
+const IS_SMALL_PHONE = width < 400;
+const IS_LARGE_PHONE = !IS_IPAD && width >= 414;
 
 const AnimatedHeroMessage = () => {
   const { theme } = useTheme();
@@ -170,6 +173,7 @@ const AnimatedHeroMessage = () => {
           {
             transform: [{ scale: textScale }],
             opacity: textOpacity,
+            marginTop: IS_IPAD ? -20 : IS_LARGE_PHONE ? -24 : -30,
           },
         ]}
       >
@@ -192,11 +196,12 @@ const AnimatedHeroMessage = () => {
 
 const styles = StyleSheet.create({
   container: {
-    height: height / 2.2,
-    justifyContent: 'center',
+    height: IS_IPAD ? height / 3 : IS_SMALL_PHONE ? height / 3 : IS_LARGE_PHONE ? height / 2.8 : height / 2.5,
+    justifyContent: 'flex-start',
     alignItems: 'center',
     position: 'relative',
     overflow: 'hidden',
+    paddingTop: IS_IPAD ? 120 : IS_SMALL_PHONE ? 80 : IS_LARGE_PHONE ? 90 : 100,
   },
   star: {
     position: 'absolute',
@@ -210,41 +215,45 @@ const styles = StyleSheet.create({
   crescentMoon: {
     position: 'absolute',
     top: 40,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: IS_IPAD ? 80 : IS_SMALL_PHONE ? 50 : 60,
+    height: IS_IPAD ? 80 : IS_SMALL_PHONE ? 50 : 60,
+    borderRadius: IS_IPAD ? 40 : IS_SMALL_PHONE ? 25 : 30,
     backgroundColor: '#F1C40F',
     shadowColor: '#F1C40F',
     shadowOffset: { width: 0, height: 0 },
-    shadowRadius: 25, // Increased glow radius
-    shadowOpacity: 1, // Maximum glow
+    shadowRadius: IS_IPAD ? 30 : IS_SMALL_PHONE ? 20 : 25,
+    shadowOpacity: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 8, // Android shadow
+    elevation: 8,
   },
   crescentText: {
-    fontSize: 24,
+    fontSize: IS_IPAD ? 32 : IS_SMALL_PHONE ? 20 : 24,
   },
   textContainer: {
     alignItems: 'center',
     zIndex: 10,
   },
   heroText: {
-    fontSize: 44,
+    fontSize: IS_IPAD ? 72 : IS_SMALL_PHONE ? 36 : IS_LARGE_PHONE ? 44 : 52,
     fontFamily: 'CormorantGaramond-Bold',
+    fontWeight: '900',
     textAlign: 'center',
-    marginBottom: 8,
-    letterSpacing: 1,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
+    marginBottom: IS_IPAD ? 4 : IS_LARGE_PHONE ? 6 : 8,
+    letterSpacing: IS_IPAD ? 2 : 1.5,
+    textShadowColor: 'rgba(0, 0, 0, 0.5)',
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 4,
+    paddingHorizontal: IS_SMALL_PHONE ? 20 : 0,
   },
   subtitle: {
-    fontSize: 24,
+    fontSize: IS_IPAD ? 32 : IS_SMALL_PHONE ? 18 : IS_LARGE_PHONE ? 22 : 24,
     fontFamily: 'CormorantGaramond-SemiBold',
     textAlign: 'center',
     opacity: 0.9,
     letterSpacing: 0.5,
+    paddingHorizontal: IS_SMALL_PHONE ? 20 : 0,
+    marginTop: IS_IPAD ? 4 : IS_LARGE_PHONE ? 4 : 2,
   },
 });
 

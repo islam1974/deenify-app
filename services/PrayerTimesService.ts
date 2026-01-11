@@ -67,6 +67,21 @@ export class PrayerTimesService {
     Algeria: 18,   // Algeria
   };
 
+  static async getPrayerTimesWithTimezone(
+    latitude: number,
+    longitude: number,
+    date?: Date,
+    calculationMethod: string = 'MWL',
+    madhab: string = 'Standard'
+  ): Promise<{ times: PrayerTime[]; timezone: string }> {
+    const times = await this.getPrayerTimes(latitude, longitude, date, calculationMethod, madhab);
+    const timezoneInfo = await this.getTimezoneInfo(latitude, longitude);
+    return {
+      times,
+      timezone: timezoneInfo?.timezone || ''
+    };
+  }
+
   static async getPrayerTimes(
     latitude: number,
     longitude: number,
@@ -82,7 +97,7 @@ export class PrayerTimesService {
       const methodId = this.CALCULATION_METHODS[calculationMethod as keyof typeof this.CALCULATION_METHODS] || 3;
       
       // Build URL with calculation method and madhab
-      // Note: API automatically handles DST/BST based on coordinates
+      // API automatically handles timezone and DST based on coordinates
       let url = `${this.API_BASE_URL}/timings/${dateString}?latitude=${latitude}&longitude=${longitude}&method=${methodId}`;
       
       // Add madhab parameter for Asr calculation
@@ -92,16 +107,39 @@ export class PrayerTimesService {
         url += '&school=0'; // Standard school (Shafi'i, Maliki, Hanbali)
       }
       
+      // Validate coordinates are within reasonable bounds
+      if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+        console.error(`❌ Invalid coordinates: ${latitude}, ${longitude}`);
+        throw new Error('Invalid location coordinates');
+      }
+      
+      console.log(`🌍 Fetching prayer times for coordinates: ${latitude}, ${longitude}`);
+      console.log(`📅 Date: ${dateString}`);
+      console.log(`🔗 API URL: ${url}`);
+      
       const response = await fetch(url);
       const data: PrayerTimesResponse = await response.json();
 
       if (data.code !== 200) {
-        throw new Error('Failed to fetch prayer times');
+        console.error('❌ API Error:', data);
+        throw new Error(`Failed to fetch prayer times: ${data.status}`);
       }
-
+      
+      console.log(`✅ API Response:`, {
+        timings: data.data.timings,
+        timezone: data.data.meta.timezone,
+        method: data.data.meta.method.name
+      });
+      console.log(`🕐 Raw API Timings:`, data.data.timings);
+      console.log(`📊 Device timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
+      console.log(`⏰ Device current time: ${new Date().toLocaleString()}`);
+      console.log(`📊 API reported timezone: ${data.data.meta.timezone}`);
+      
       const timings = data.data.timings;
       const currentTime = new Date();
       
+      // Use API times directly - the API returns times in the correct local timezone
+      // No manual adjustments needed
       const prayerTimes: PrayerTime[] = [
         {
           name: 'Fajr',
@@ -175,7 +213,7 @@ export class PrayerTimesService {
       const methodId = this.CALCULATION_METHODS[calculationMethod as keyof typeof this.CALCULATION_METHODS] || 3;
       
       // Build URL with calculation method and madhab
-      // Note: API automatically handles DST/BST based on city location
+      // API automatically handles timezone and DST/BST based on city location
       let url = `${this.API_BASE_URL}/timingsByCity/${dateString}?city=${encodeURIComponent(city)}&country=${encodeURIComponent(country)}&method=${methodId}`;
       
       // Add madhab parameter for Asr calculation
@@ -195,6 +233,8 @@ export class PrayerTimesService {
       const timings = data.data.timings;
       const currentTime = new Date();
       
+      // Use API times directly - the API returns times in the correct local timezone
+      // No manual adjustments needed
       const prayerTimes: PrayerTime[] = [
         {
           name: 'Fajr',
@@ -295,6 +335,17 @@ export class PrayerTimesService {
   }
 
   /**
+   * Check if current date is in Daylight Saving Time (public version)
+   */
+  static isDSTActive(date: Date): boolean {
+    const now = date;
+    const january = new Date(now.getFullYear(), 0, 1);
+    const july = new Date(now.getFullYear(), 6, 1);
+    const stdTimezoneOffset = Math.max(january.getTimezoneOffset(), july.getTimezoneOffset());
+    return now.getTimezoneOffset() < stdTimezoneOffset;
+  }
+
+  /**
    * Get current timezone offset as string
    */
   private static getTimezoneOffset(): string {
@@ -328,6 +379,7 @@ export class PrayerTimesService {
     const displayHours = hours % 12 || 12;
     return `${displayHours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${period}`;
   }
+
 
   static async getYearlyPrayerTimes(
     latitude: number,

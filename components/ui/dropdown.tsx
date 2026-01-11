@@ -36,7 +36,6 @@ export default function Dropdown({
   const dropdownId = useRef(`dropdown_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`).current;
   const colorScheme = useColorScheme();
   const colors = Colors[((colorScheme ?? 'light' as 'light' | 'dark') ?? 'light' as 'light' | 'dark') ?? 'light'];
-  const closeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     // Register close callback
@@ -50,20 +49,11 @@ export default function Dropdown({
       if (openDropdownId === dropdownId) {
         openDropdownId = null;
       }
-      if (closeTimeoutRef.current) {
-        clearTimeout(closeTimeoutRef.current);
-      }
     };
   }, [dropdownId]);
 
   const handleOpen = useCallback(() => {
     if (disabled || isOpen) return;
-    
-    // Clear any pending close timeouts
-    if (closeTimeoutRef.current) {
-      clearTimeout(closeTimeoutRef.current);
-      closeTimeoutRef.current = null;
-    }
     
     // Use requestAnimationFrame for smoother opening
     requestAnimationFrame(() => {
@@ -88,13 +78,14 @@ export default function Dropdown({
   }, [dropdownId]);
 
   const handleSelect = useCallback((item: DropdownItem) => {
-    // Immediate selection feedback
-    onSelect(item);
+    // Close first for instant visual feedback
+    handleClose();
     
-    // Delay close slightly to show selection
-    closeTimeoutRef.current = setTimeout(() => {
-      handleClose();
-    }, 100);
+    // Then trigger selection callback
+    // Using setTimeout 0 to let the modal close animation start first
+    setTimeout(() => {
+      onSelect(item);
+    }, 0);
   }, [onSelect, handleClose]);
 
   const renderItem = useCallback(({ item }: { item: DropdownItem }) => {
@@ -195,9 +186,10 @@ export default function Dropdown({
                 keyboardShouldPersistTaps="handled"
                 bounces={false}
                 removeClippedSubviews={true}
-                maxToRenderPerBatch={10}
-                windowSize={5}
-                initialNumToRender={10}
+                maxToRenderPerBatch={20}
+                windowSize={10}
+                initialNumToRender={20}
+                updateCellsBatchingPeriod={30}
                 getItemLayout={(data, index) => ({
                   length: Math.max(56, 60 * scaleFactor),
                   offset: Math.max(56, 60 * scaleFactor) * index,
@@ -236,6 +228,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
+    zIndex: 998,
+    elevation: 998,
   },
   dropdownList: {
     maxHeight: Math.max(300, 350 * scaleFactor),
@@ -249,7 +243,8 @@ const styles = StyleSheet.create({
     },
     shadowOpacity: 0.3,
     shadowRadius: 8,
-    elevation: 10,
+    elevation: 999,
+    zIndex: 999,
   },
   scrollView: {
     maxHeight: Math.max(300, 350 * scaleFactor),
