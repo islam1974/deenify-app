@@ -1,9 +1,9 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
+import { FontSize, useQuranSettings } from '@/contexts/QuranSettingsContext';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useQuranSettings, FontSize } from '@/contexts/QuranSettingsContext';
+import React from 'react';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const fontSizeOptions = [
   { value: 'small' as FontSize, label: 'Small', size: 20, description: 'Compact reading' },

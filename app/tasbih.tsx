@@ -1,18 +1,21 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions, TextInput, Modal, Animated, Platform, FlatList } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Fonts } from '@/constants/theme';
 import { useTheme } from '@/contexts/ThemeContext';
-import * as Haptics from 'expo-haptics';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { OdometerCounter } from '@/components/OdometerCounter';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Dimensions, FlatList, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const IS_SMALL_PHONE = SCREEN_WIDTH < 400;
-const IS_IPAD = Platform.OS === 'ios' ? Boolean((Platform as any).isPad) : SCREEN_WIDTH >= 768;
+const IS_IPAD = false; // Set true when deploying on iPad
+// iPhone 16 Pro (~402pt), not Plus/Max (~430pt+): use smaller circle
+const IS_16_PRO_SIZE = SCREEN_WIDTH >= 393 && SCREEN_WIDTH < 420;
+// iPhone SE and other short screens: use smaller circle so it fits
+const IS_COMPACT_HEIGHT = SCREEN_HEIGHT < 700;
 const CARD_SPACING = IS_IPAD ? 32 : 16;
 const PHONE_SIDE_PADDING = 8;
 const PHONE_CARD_WIDTH = Math.max(SCREEN_WIDTH * 0.82, SCREEN_WIDTH - 140);
@@ -48,9 +51,45 @@ const popularDhikr: DhikrItem[] = [
     target: 34,
   },
   {
+    arabic: 'سُبْحَانَ اللَّهِ وَبِحَمْدِهِ',
+    translation: 'Glory and praise be to Allah',
+    transliteration: 'SubhanAllahi wa bihamdihi',
+    target: 100,
+  },
+  {
+    arabic: 'سُبْحَانَ اللَّهِ وَبِحَمْدِهِ، سُبْحَانَ اللَّهِ الْعَظِيمِ',
+    translation: 'Glory and praise be to Allah; glory be to Allah the Almighty',
+    transliteration: 'SubhanAllahi wa bihamdihi, SubhanAllahil Azeem',
+    target: 100,
+  },
+  {
+    arabic: 'لَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ',
+    translation: 'There is no power or strength except with Allah',
+    transliteration: 'La hawla wa la quwwata illa billah',
+    target: 33,
+  },
+  {
+    arabic: 'حَسْبُنَا اللَّهُ وَنِعْمَ الْوَكِيلُ',
+    translation: 'Allah is sufficient for us, and He is the best disposer of affairs',
+    transliteration: 'Hasbunallah wa ni\'mal wakeel',
+    target: 33,
+  },
+  {
     arabic: 'لَا إِلَٰهَ إِلَّا اللَّهُ',
     translation: 'There is no god but Allah',
     transliteration: 'La ilaha illallah',
+    target: 100,
+  },
+  {
+    arabic: 'لَا إِلَٰهَ إِلَّا اللَّهُ مُحَمَّدٌ رَسُولُ اللَّهِ',
+    translation: 'There is no god but Allah, Muhammad is the Messenger of Allah',
+    transliteration: 'La ilaha illallah Muhammadur Rasulullah',
+    target: 100,
+  },
+  {
+    arabic: 'اللَّهُمَّ صَلِّ عَلَى مُحَمَّدٍ وَعَلَى آلِ مُحَمَّدٍ',
+    translation: 'O Allah, send blessings upon Muhammad and the family of Muhammad',
+    transliteration: 'Allahumma salli ala Muhammadin wa ala ali Muhammad',
     target: 100,
   },
   {
@@ -65,6 +104,18 @@ const popularDhikr: DhikrItem[] = [
     transliteration: 'Astaghfirullah',
     target: 100,
   },
+  {
+    arabic: 'سُبْحَانَ اللَّهِ الْعَظِيمِ',
+    translation: 'Glory be to Allah the Almighty',
+    transliteration: 'SubhanAllahil Azeem',
+    target: 33,
+  },
+  {
+    arabic: 'رَضِيتُ بِاللَّهِ رَبًّا وَبِالْإِسْلَامِ دِينًا وَبِمُحَمَّدٍ نَبِيًّا',
+    translation: 'I am pleased with Allah as Lord, Islam as religion, and Muhammad as Prophet',
+    transliteration: 'Raditu billahi Rabban wa bil-Islami deenan wa bi-Muhammadin Nabiyya',
+    target: 3,
+  },
 ];
 
 const targetOptions = [33, 100, 500, 1000];
@@ -74,6 +125,9 @@ export default function TasbihScreen() {
   const colors = Colors[((theme as 'light' | 'dark') ?? 'light' as 'light' | 'dark') ?? 'light'];
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const isDarkMode = theme === 'dark';
+  const screenBackground = isDarkMode ? '#0d1b2a' : '#F3F4F6';
+  const gradientColors = isDarkMode ? ['#0d1b2a', '#1e293b', '#2d3748'] as const : ['#F3F4F6', '#E5E7EB'] as const;
   const [count, setCount] = useState(0);
   const [selectedDhikrIndex, setSelectedDhikrIndex] = useState(0);
   const [customTarget, setCustomTarget] = useState<number>(100);
@@ -97,7 +151,6 @@ export default function TasbihScreen() {
   
   const currentDhikr = popularDhikr[selectedDhikrIndex];
   const target = selectedTarget;
-  const odometerDigits = Math.max(1, Math.max(String(count).length, String(target).length));
 
   // Load saved progress on mount
   useEffect(() => {
@@ -242,9 +295,9 @@ export default function TasbihScreen() {
 
   const handleScroll = (event: any) => {
     const offsetX = event.nativeEvent.contentOffset.x;
-    // Account for ListHeaderComponent spacing
+    // Account for ListHeaderComponent spacing; match snap interval
     const adjustedOffset = offsetX - SIDE_SPACING;
-    const interval = CARD_WIDTH + (IS_IPAD ? 0 : 20);
+    const interval = CARD_WIDTH + CARD_SPACING;
     const scrollIndex = Math.round(adjustedOffset / interval);
     const index = Math.max(0, Math.min(scrollIndex, popularDhikr.length - 1));
     if (index !== selectedDhikrIndex && index >= 0 && index < popularDhikr.length) {
@@ -272,26 +325,28 @@ export default function TasbihScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <LinearGradient
+      colors={gradientColors}
+      start={{ x: 0.5, y: 0 }}
+      end={{ x: 0.5, y: 1 }}
+      style={styles.container}
+    >
       {/* Header */}
-      <LinearGradient
-        colors={['#EBF4F5', '#B5C6E0']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={[styles.headerGradient, { paddingTop: insets.top }]}
+      <View
+        style={[styles.headerGradient, { backgroundColor: 'transparent', paddingTop: insets.top }]}
       >
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <IconSymbol name="chevron.left" size={IS_IPAD ? 34 : 28} color="#2C3E50" />
-          <Text style={styles.backText}>Back</Text>
+          <IconSymbol name="chevron.left.circle.fill" size={IS_IPAD ? 42 : 42} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
+          <Text style={[styles.backText, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerTitle}>Digital Tasbih</Text>
-          <Text style={styles.headerSubtitle}>التسبيح الرقمي</Text>
+          <Text style={[styles.headerTitle, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Digital Tasbih</Text>
+          <Text style={[styles.headerSubtitle, { color: isDarkMode ? '#D9E3F5' : '#1F2937' }]}>التسبيح الرقمي</Text>
         </View>
-      </LinearGradient>
+      </View>
 
       {/* Dhikr Carousel */}
       <View style={styles.carouselWrapper}>
@@ -305,13 +360,13 @@ export default function TasbihScreen() {
               item.arabic.length > 28;
 
             return (
-            <LinearGradient
-              colors={index === selectedDhikrIndex ? ['#024223', '#024223'] : ['#000000', '#000000']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
+            <View
               style={[
                 styles.dhikrCard,
                 { width: CARD_WIDTH },
+                index === selectedDhikrIndex
+                  ? styles.dhikrCardFrosted
+                  : styles.dhikrCardUnselected,
                 index === selectedDhikrIndex && styles.selectedCard,
                 isLongDhikr && styles.longDhikrCard,
               ]}
@@ -343,14 +398,17 @@ export default function TasbihScreen() {
               >
                 {item.translation}
               </Text>
-            </LinearGradient>
+            </View>
             );
           }}
           keyExtractor={(item, index) => `dhikr-${index}`}
           horizontal
           showsHorizontalScrollIndicator={false}
-          snapToInterval={CARD_WIDTH + 20}
-          decelerationRate="fast"
+          snapToInterval={CARD_WIDTH + CARD_SPACING}
+          snapToAlignment="center"
+          decelerationRate="normal"
+          bounces={true}
+          overScrollMode="always"
           contentContainerStyle={[
             styles.carouselContent,
             { paddingHorizontal: SIDE_SPACING },
@@ -359,7 +417,6 @@ export default function TasbihScreen() {
           style={styles.carousel}
           scrollEnabled={true}
           nestedScrollEnabled={Platform.OS === 'android'}
-          bounces={Platform.OS === 'ios'}
           pagingEnabled={false}
           removeClippedSubviews={false}
           getItemLayout={(data, index) => ({
@@ -367,9 +424,6 @@ export default function TasbihScreen() {
             offset: (CARD_WIDTH + CARD_SPACING) * index,
             index,
           })}
-          snapToAlignment="center"
-          snapToInterval={CARD_WIDTH + CARD_SPACING}
-          snapToAlignment="start"
           ItemSeparatorComponent={() => <View style={{ width: CARD_SPACING }} />}
           ListHeaderComponent={<View style={{ width: SIDE_SPACING }} />}
           ListFooterComponent={<View style={{ width: SIDE_SPACING }} />}
@@ -476,28 +530,15 @@ export default function TasbihScreen() {
         </View>
       </Modal>
 
-      {/* Counter Section */}
+      {/* Counter Section – large tappable circle */}
       <View style={[styles.counterContainer, { paddingBottom: insets.bottom + 20 }]}>
-        <OdometerCounter 
-          key={`odometer-${selectedDhikrIndex}`}
-          value={count} 
-          digitCount={odometerDigits}
-          fontSize={IS_IPAD ? 72 : IS_SMALL_PHONE ? 36 : 56}
-          textColor="#FFD700"
-        />
         <TouchableOpacity
-          style={styles.counterButton}
+          style={styles.circleCounter}
           onPress={handlePress}
-          activeOpacity={0.8}
+          activeOpacity={0.85}
         >
-          <LinearGradient
-            colors={['#4ECDC4', '#45B7D1']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.tapButton}
-          >
-            <Text style={styles.tapHintText}>TAP</Text>
-          </LinearGradient>
+          <Text style={styles.circleCountText}>{count}</Text>
+          <Text style={styles.circleTargetText}>of {target}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -555,14 +596,13 @@ export default function TasbihScreen() {
           </>
         )}
       </View>
-    </View>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a1a',
     width: '100%',
   },
   headerGradient: {
@@ -577,25 +617,21 @@ const styles = StyleSheet.create({
   backText: {
     fontSize: IS_IPAD ? 20 : 16,
     fontWeight: '600',
-    color: '#2C3E50',
     marginLeft: IS_IPAD ? 8 : 5,
   },
   headerTitleContainer: {
     alignItems: 'center',
-    marginTop: IS_IPAD ? 6 : 0,
+    marginTop: IS_IPAD ? 10 : 8,
   },
   headerTitle: {
-    fontSize: IS_IPAD ? 38 : 24,
+    fontSize: IS_IPAD ? 42 : 28,
     fontWeight: '900',
     fontFamily: Fonts.secondary,
-    color: '#000000',
     marginBottom: 0,
   },
   headerSubtitle: {
-    fontSize: IS_IPAD ? 20 : 14,
+    fontSize: IS_IPAD ? 22 : 18,
     fontWeight: '900',
-    color: '#34495E',
-    opacity: 0.8,
     fontFamily: Fonts.primary,
   },
   carouselWrapper: {
@@ -619,18 +655,27 @@ const styles = StyleSheet.create({
     alignSelf: IS_IPAD ? 'center' : 'flex-start',
     minHeight: IS_SMALL_PHONE ? 160 : IS_IPAD ? 220 : 220,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 20 },
-    shadowOpacity: 0.8,
-    shadowRadius: 30,
-    elevation: 25,
-    borderWidth: Platform.OS === 'android' ? 1 : StyleSheet.hairlineWidth,
-    borderColor: '#FFFFFF',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.35,
+    shadowRadius: 20,
+    elevation: 16,
+  },
+  dhikrCardFrosted: {
+    backgroundColor: 'rgba(0, 42, 22, 0.42)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.35)',
+    overflow: 'hidden',
+  },
+  dhikrCardUnselected: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
   selectedCard: {
-    shadowOpacity: 0.9,
-    shadowRadius: 40,
-    shadowOffset: { width: 0, height: 30 },
-    elevation: 35,
+    shadowOpacity: 0.4,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 14 },
+    elevation: 20,
     transform: [{ scale: 1.03 }],
   },
   longDhikrCard: {
@@ -808,35 +853,33 @@ const styles = StyleSheet.create({
     maxWidth: IS_IPAD ? 600 : undefined,
     alignSelf: 'center',
   },
-  counterButton: {
-    marginTop: IS_SMALL_PHONE ? 12 : IS_IPAD ? 32 : 24,
-    borderRadius: 30,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 15,
-    elevation: 15,
-  },
-  tapButton: {
-    paddingHorizontal: IS_SMALL_PHONE ? 20 : IS_IPAD ? 50 : 40,
-    paddingVertical: IS_SMALL_PHONE ? 10 : IS_IPAD ? 18 : 14,
+  circleCounter: {
+    width: IS_COMPACT_HEIGHT ? 118 : IS_SMALL_PHONE ? 140 : IS_IPAD ? 230 : IS_16_PRO_SIZE ? 125 : 180,
+    height: IS_COMPACT_HEIGHT ? 118 : IS_SMALL_PHONE ? 140 : IS_IPAD ? 230 : IS_16_PRO_SIZE ? 125 : 180,
+    borderRadius: IS_COMPACT_HEIGHT ? 59 : IS_SMALL_PHONE ? 70 : IS_IPAD ? 115 : IS_16_PRO_SIZE ? 63 : 90,
+    marginTop: IS_SMALL_PHONE ? 8 : IS_IPAD ? 16 : 20,
+    backgroundColor: 'rgba(0, 42, 22, 0.46)',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
     justifyContent: 'center',
     alignItems: 'center',
-    minWidth: IS_SMALL_PHONE ? 90 : IS_IPAD ? 200 : 140,
-    minHeight: IS_SMALL_PHONE ? 36 : IS_IPAD ? 70 : 56,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 20,
+    elevation: 16,
   },
-  counterText: {
-    fontSize: IS_SMALL_PHONE ? 36 : IS_IPAD ? 48 : 42,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+  circleCountText: {
+    fontSize: IS_COMPACT_HEIGHT ? 36 : IS_SMALL_PHONE ? 42 : IS_IPAD ? 72 : IS_16_PRO_SIZE ? 38 : 56,
+    fontWeight: '900',
+    color: '#FFD700',
+    fontFamily: Fonts.secondary,
   },
-  tapHintText: {
-    fontSize: IS_SMALL_PHONE ? 13 : IS_IPAD ? 26 : 22,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    letterSpacing: IS_SMALL_PHONE ? 1.5 : IS_IPAD ? 3.5 : 3,
-    lineHeight: IS_SMALL_PHONE ? 16 : IS_IPAD ? 30 : 26,
+  circleTargetText: {
+    fontSize: IS_COMPACT_HEIGHT ? 10 : IS_SMALL_PHONE ? 11 : IS_IPAD ? 16 : IS_16_PRO_SIZE ? 10 : 14,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginTop: 4,
   },
   progressText: {
     fontSize: IS_SMALL_PHONE ? 16 : IS_IPAD ? 22 : 20,
@@ -844,15 +887,15 @@ const styles = StyleSheet.create({
     marginTop: IS_SMALL_PHONE ? 8 : IS_IPAD ? 24 : 24,
   },
   resetButton: {
-    marginTop: IS_SMALL_PHONE ? 16 : IS_IPAD ? 28 : 24,
+    marginTop: IS_SMALL_PHONE ? 4 : IS_IPAD ? 10 : 6,
     marginBottom: 0,
-    paddingHorizontal: IS_SMALL_PHONE ? 18 : IS_IPAD ? 36 : 28,
-    paddingVertical: IS_SMALL_PHONE ? 6 : IS_IPAD ? 14 : 10,
-    borderRadius: 24,
+    paddingHorizontal: IS_SMALL_PHONE ? 14 : IS_IPAD ? 28 : 20,
+    paddingVertical: IS_SMALL_PHONE ? 4 : IS_IPAD ? 10 : 6,
+    borderRadius: 18,
     borderWidth: 2,
   },
   resetText: {
-    fontSize: IS_SMALL_PHONE ? 14 : IS_IPAD ? 18 : 16,
+    fontSize: IS_SMALL_PHONE ? 12 : IS_IPAD ? 16 : 14,
     fontWeight: '600',
   },
   confetti: {

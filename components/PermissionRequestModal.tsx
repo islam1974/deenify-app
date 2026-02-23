@@ -146,7 +146,7 @@ export default function PermissionRequestModal({
                 </View>
                 <View style={styles.benefitItem}>
                   <IconSymbol name="speaker.wave.2.fill" size={16} color="#00CCFF" />
-                  <Text style={styles.benefitText}>Optional adhan sound notifications</Text>
+                  <Text style={styles.benefitText}>Prayer time reminders</Text>
                 </View>
               </View>
             </View>

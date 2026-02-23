@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 5.2.0"
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
@@ -8,6 +9,13 @@
       "distribution": "internal",
       "ios": {
         "simulator": true
+      }
+    },
+    "development_device": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": false
       }
     },
     "preview": {
@@ -19,19 +27,15 @@
     "production": {
       "autoIncrement": true,
       "ios": {
-        "buildConfiguration": "Release",
-        "bundleIdentifier": "com.deenify.app"
+        "buildConfiguration": "Release"
       }
     }
   },
   "submit": {
     "production": {
       "ios": {
-        "appleId": "",
-        "ascAppId": "",
-        "appleTeamId": ""
+        "ascAppId": "6758069487"
       }
     }
   }
 }
-

@@ -1,11 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, FlatList, Dimensions, Platform, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, FlatList, Dimensions, Platform, Pressable, useWindowDimensions, type StyleProp, type ViewStyle } from 'react-native';
 import { IconSymbol } from './icon-symbol';
 import { Colors, Fonts } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-
-const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
-const scaleFactor = screenWidth / 375;
 
 // Global state to track which dropdown is open
 let openDropdownId: string | null = null;
@@ -23,6 +20,18 @@ interface DropdownProps {
   onSelect: (item: DropdownItem) => void;
   placeholder?: string;
   disabled?: boolean;
+  leftIcon?: React.ReactNode;
+  buttonStyle?: StyleProp<ViewStyle>;
+  triggerTextColor?: string;
+  triggerPlaceholderColor?: string;
+  triggerChevronColor?: string;
+  /** Optional: override list/modal colors to match parent (e.g. Quran paper theme) */
+  listBackgroundColor?: string;
+  listBorderColor?: string;
+  itemTextColor?: string;
+  itemSelectedBackgroundColor?: string;
+  itemSelectedTextColor?: string;
+  itemBorderColor?: string;
 }
 
 export default function Dropdown({ 
@@ -30,12 +39,28 @@ export default function Dropdown({
   selectedItem, 
   onSelect, 
   placeholder = "Select an option",
-  disabled = false 
+  disabled = false,
+  leftIcon,
+  buttonStyle,
+  triggerTextColor,
+  triggerPlaceholderColor,
+  triggerChevronColor,
+  listBackgroundColor,
+  listBorderColor,
+  itemTextColor,
+  itemSelectedBackgroundColor,
+  itemSelectedTextColor,
+  itemBorderColor,
 }: DropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownId = useRef(`dropdown_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`).current;
   const colorScheme = useColorScheme();
   const colors = Colors[((colorScheme ?? 'light' as 'light' | 'dark') ?? 'light' as 'light' | 'dark') ?? 'light'];
+  
+  // Use reactive dimensions for orientation changes
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const isLandscape = screenWidth > screenHeight;
+  const scaleFactor = Math.min(screenWidth, screenHeight) / 375;
 
   useEffect(() => {
     // Register close callback
@@ -96,10 +121,10 @@ export default function Dropdown({
           styles.dropdownItem,
           { 
             backgroundColor: isSelected 
-              ? colors.tint 
-              : pressed 
-                ? colors.border + '40'
-                : 'transparent'
+              ? (itemSelectedBackgroundColor ?? colors.tint) 
+              : pressed ? (colors.border + '40') : 'transparent',
+            paddingVertical: isLandscape ? 10 : Math.max(12, 14 * scaleFactor),
+            borderBottomColor: itemBorderColor ?? 'rgba(0, 0, 0, 0.1)',
           }
         ]}
         onPress={() => handleSelect(item)}
@@ -107,18 +132,19 @@ export default function Dropdown({
         <Text style={[
           styles.itemText,
           { 
-            color: isSelected ? colors.background : colors.text,
-            fontFamily: Fonts.roboto
+            color: isSelected ? (itemSelectedTextColor ?? colors.background) : (itemTextColor ?? colors.text),
+            fontFamily: Fonts.roboto,
+            fontSize: isLandscape ? 15 : Math.max(16, 18 * scaleFactor),
           }
         ]}>
           {item.label}
         </Text>
         {isSelected && (
-          <IconSymbol name="checkmark" size={16} color={colors.background} />
+          <IconSymbol name="checkmark" size={16} color={itemSelectedTextColor ?? colors.background} />
         )}
       </Pressable>
     );
-  }, [selectedItem, colors, handleSelect]);
+  }, [selectedItem, colors, handleSelect, isLandscape, scaleFactor, itemTextColor, itemSelectedBackgroundColor, itemSelectedTextColor, itemBorderColor]);
 
   const keyExtractor = useCallback((item: DropdownItem) => item.id.toString(), []);
 
@@ -131,15 +157,19 @@ export default function Dropdown({
             backgroundColor: colors.background,
             borderColor: colors.border,
             opacity: disabled ? 0.6 : pressed ? 0.8 : 1
-          }
+          },
+          buttonStyle
         ]}
         onPress={handleOpen}
         disabled={disabled}
       >
+        {leftIcon ? <View style={styles.dropdownLeftIcon}>{leftIcon}</View> : null}
         <Text style={[
           styles.selectedText,
           { 
-            color: selectedItem ? colors.text : colors.icon,
+            color: selectedItem 
+              ? (triggerTextColor ?? colors.text) 
+              : (triggerPlaceholderColor ?? colors.icon),
             fontFamily: selectedItem ? Fonts.roboto : Fonts.secondary
           }
         ]}>
@@ -148,7 +178,7 @@ export default function Dropdown({
         <IconSymbol 
           name={isOpen ? "chevron.up" : "chevron.down"} 
           size={16} 
-          color={colors.text} 
+          color={triggerChevronColor ?? triggerTextColor ?? colors.text} 
         />
       </Pressable>
 
@@ -161,18 +191,24 @@ export default function Dropdown({
           statusBarTranslucent
           hardwareAccelerated
           presentationStyle="overFullScreen"
+          supportedOrientations={['portrait', 'landscape', 'landscape-left', 'landscape-right']}
         >
           <Pressable
-            style={styles.modalOverlay}
+            style={[
+              styles.modalOverlay,
+              isLandscape && { paddingHorizontal: 40 }
+            ]}
             onPress={handleClose}
           >
             <Pressable 
               style={[
                 styles.dropdownList,
                 { 
-                  backgroundColor: colors.background,
-                  borderColor: colors.border,
-                  shadowColor: colors.text
+                  backgroundColor: listBackgroundColor ?? colors.background,
+                  borderColor: listBorderColor ?? colors.border,
+                  shadowColor: colors.text,
+                  maxHeight: isLandscape ? screenHeight * 0.7 : Math.max(300, 350 * scaleFactor),
+                  maxWidth: isLandscape ? screenWidth * 0.7 : 500,
                 }
               ]}
               onPress={(e) => e.stopPropagation()}
@@ -181,8 +217,8 @@ export default function Dropdown({
                 data={items}
                 renderItem={renderItem}
                 keyExtractor={keyExtractor}
-                style={styles.scrollView}
-                showsVerticalScrollIndicator={false}
+                style={{ maxHeight: isLandscape ? screenHeight * 0.65 : Math.max(300, 350 * scaleFactor) }}
+                showsVerticalScrollIndicator={true}
                 keyboardShouldPersistTaps="handled"
                 bounces={false}
                 removeClippedSubviews={true}
@@ -191,8 +227,8 @@ export default function Dropdown({
                 initialNumToRender={20}
                 updateCellsBatchingPeriod={30}
                 getItemLayout={(data, index) => ({
-                  length: Math.max(56, 60 * scaleFactor),
-                  offset: Math.max(56, 60 * scaleFactor) * index,
+                  length: isLandscape ? 48 : Math.max(56, 60 * scaleFactor),
+                  offset: (isLandscape ? 48 : Math.max(56, 60 * scaleFactor)) * index,
                   index,
                 })}
               />
@@ -212,14 +248,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Math.max(16, 18 * scaleFactor),
-    paddingVertical: Math.max(12, 14 * scaleFactor),
-    borderRadius: Math.max(8, 10 * scaleFactor),
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 9999,
     borderWidth: 1,
-    minHeight: Math.max(48, 52 * scaleFactor),
+    minHeight: 48,
+  },
+  dropdownLeftIcon: {
+    marginRight: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   selectedText: {
-    fontSize: Math.max(16, 18 * scaleFactor),
+    fontSize: 16,
     flex: 1,
   },
   modalOverlay: {
@@ -232,11 +273,10 @@ const styles = StyleSheet.create({
     elevation: 998,
   },
   dropdownList: {
-    maxHeight: Math.max(300, 350 * scaleFactor),
     width: '100%',
-    maxWidth: 500,
-    borderRadius: Math.max(8, 10 * scaleFactor),
+    borderRadius: 24,
     borderWidth: 1,
+    overflow: 'hidden',
     shadowOffset: {
       width: 0,
       height: 4,
@@ -246,20 +286,15 @@ const styles = StyleSheet.create({
     elevation: 999,
     zIndex: 999,
   },
-  scrollView: {
-    maxHeight: Math.max(300, 350 * scaleFactor),
-  },
   dropdownItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Math.max(16, 18 * scaleFactor),
-    paddingVertical: Math.max(12, 14 * scaleFactor),
+    paddingHorizontal: 16,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0, 0, 0, 0.1)',
   },
   itemText: {
-    fontSize: Math.max(16, 18 * scaleFactor),
     flex: 1,
   },
 });

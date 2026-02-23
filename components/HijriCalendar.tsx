@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform, Dimensions } from 'react-native';
-import * as Notifications from 'expo-notifications';
+import { LinearGradient } from 'expo-linear-gradient';
+import Notifications from '@/services/notificationsSafe';
 import * as Device from 'expo-device';
 import { useTheme } from '@/contexts/ThemeContext';
 import { Colors, Fonts } from '@/constants/theme';
@@ -39,7 +40,7 @@ interface CalendarDay {
 }
 
 const { width } = Dimensions.get('window');
-const IS_IPAD = Platform.OS === 'ios' ? Boolean((Platform as any).isPad) : width >= 768;
+const IS_IPAD = false; // Set true when deploying on iPad
 const IS_SMALL_PHONE = width < 360;
 
 const HijriCalendar = () => {
@@ -486,20 +487,28 @@ const HijriCalendar = () => {
 
 
 
+  // Parse date string (YYYY-MM-DD) as local date to avoid timezone issues
+  const parseEventDate = (dateStr: string): Date => {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, (m ?? 1) - 1, d ?? 1);
+  };
+
   // Schedule notification for an event
   const scheduleEventNotification = async (event: IslamicEvent) => {
     try {
-      const eventDate = new Date(event.date);
+      const eventDate = parseEventDate(event.date);
       const now = new Date();
+      const minFutureMs = 60 * 1000; // Don't schedule if trigger is within 1 minute (avoids immediate fire)
       const timeUntilEvent = eventDate.getTime() - now.getTime();
-      
-      // Only schedule if event is in the future
-      if (timeUntilEvent > 0) {
+
+      // Only schedule if event is in the future (strict: must be at least 1 min from now)
+      if (timeUntilEvent > minFutureMs) {
         // Schedule notification 1 day before the event
-        const notificationTime = new Date(eventDate.getTime() - (24 * 60 * 60 * 1000));
-        
-        // Don't schedule if the notification time has passed
-        if (notificationTime > now) {
+        const dayBefore = new Date(eventDate);
+        dayBefore.setDate(dayBefore.getDate() - 1);
+        dayBefore.setHours(9, 0, 0, 0); // 9 AM day before
+
+        if (dayBefore.getTime() - now.getTime() > minFutureMs) {
           await Notifications.scheduleNotificationAsync({
             content: {
               title: '📅 Islamic Event Reminder',
@@ -507,16 +516,15 @@ const HijriCalendar = () => {
               data: { eventName: event.name, eventDate: event.date },
             },
             trigger: {
-              date: notificationTime,
+              date: dayBefore,
             },
           });
         }
-        
-        // Also schedule a same-day notification
-        const sameDayTime = new Date(eventDate);
-        sameDayTime.setHours(8, 0, 0, 0); // 8 AM on the event day
-        
-        if (sameDayTime > now) {
+
+        // Same-day notification: 8 AM on the event day (use local date)
+        const sameDayTime = new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate(), 8, 0, 0, 0);
+
+        if (sameDayTime.getTime() - now.getTime() > minFutureMs) {
           await Notifications.scheduleNotificationAsync({
             content: {
               title: '🌟 Today\'s Islamic Event',
@@ -698,18 +706,26 @@ const HijriCalendar = () => {
     }
   }, [currentMonth, allEvents]);
 
+  const gradientColors = theme === 'dark' ? ['#222224', '#1A1A1C'] : ['#B8BDC4', '#A4AAB0'];
   if (!hijriDate || isLoadingEvents) {
     return (
-      <View style={[styles.container, { backgroundColor: colors.cardBackground }]}>
+      <LinearGradient
+        colors={gradientColors}
+        style={[styles.container]}
+      >
         <Text style={[styles.loadingText, { color: colors.secondaryText }]}>
           {!hijriDate ? 'Loading Hijri date...' : 'Loading Islamic events...'}
         </Text>
-      </View>
+      </LinearGradient>
     );
   }
 
   return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.cardBackground }]}>
+    <ScrollView style={styles.scrollView}>
+      <LinearGradient
+        colors={gradientColors}
+        style={[styles.container]}
+      >
       {/* Today's Hijri Date */}
       <View style={styles.dateSection}>
         <View style={styles.dateHeader}>
@@ -924,18 +940,26 @@ const HijriCalendar = () => {
           </TouchableOpacity>
         </View>
       </View>
+      </LinearGradient>
     </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
+  scrollView: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     backgroundColor: 'transparent',
+    borderRadius: 32,
+    overflow: 'hidden',
   },
   dateSection: {
     marginBottom: 20,
     paddingHorizontal: 15,
+    paddingVertical: 16,
+    borderRadius: 28,
   },
   dateHeader: {
     flexDirection: 'row',
@@ -986,7 +1010,7 @@ const styles = StyleSheet.create({
   },
   navButton: {
     padding: 8,
-    borderRadius: 8,
+    borderRadius: 20,
   },
   monthYear: {
     fontSize: 18,
@@ -1014,6 +1038,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'transparent',
+    borderRadius: 20,
     position: 'relative',
     paddingTop: 4,
   },
@@ -1032,15 +1057,15 @@ const styles = StyleSheet.create({
     marginLeft: -3,
     width: 6,
     height: 6,
-    borderRadius: 3,
+    borderRadius: 4,
   },
   
   // List View Styles
   listViewContainer: {
-    marginTop: 10,
+    marginTop: -12,
   },
   listViewTitle: {
-    fontSize: IS_IPAD ? 36 : 20,
+    fontSize: IS_IPAD ? 40 : 24,
     fontFamily: Fonts.secondary,
     fontWeight: '900',
     marginBottom: 20,
@@ -1053,7 +1078,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     paddingLeft: 15,
     marginBottom: 16,
-    borderRadius: 12,
+    borderRadius: 28,
     padding: 15,
     shadowColor: '#000',
     shadowOpacity: 0.05,
@@ -1070,7 +1095,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   listEventName: {
-    fontSize: IS_IPAD ? 30 : 16,
+    fontSize: IS_IPAD ? 32 : 18,
     fontFamily: Fonts.secondary,
     fontWeight: '700',
     marginLeft: 10,
@@ -1079,34 +1104,34 @@ const styles = StyleSheet.create({
   daysUntilBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 22,
   },
   daysUntilText: {
     color: '#fff',
-    fontSize: IS_IPAD ? 16 : 12,
+    fontSize: IS_IPAD ? 18 : 14,
     fontWeight: 'bold',
   },
   listEventDate: {
-    fontSize: IS_IPAD ? 24 : 14,
+    fontSize: IS_IPAD ? 26 : 16,
     marginBottom: 6,
     fontWeight: '500',
   },
   listEventDescription: {
-    fontSize: IS_IPAD ? 24 : 14,
-    lineHeight: IS_IPAD ? 34 : 20,
+    fontSize: IS_IPAD ? 26 : 16,
+    lineHeight: IS_IPAD ? 36 : 22,
     marginBottom: 8,
   },
   recommendationBox: {
     padding: 10,
-    borderRadius: 8,
+    borderRadius: 22,
     marginTop: 8,
     borderWidth: 1,
   },
   recommendationText: {
-    fontSize: IS_IPAD ? 20 : 13,
+    fontSize: IS_IPAD ? 22 : 15,
     fontFamily: Fonts.secondary,
     fontStyle: 'italic',
-    lineHeight: IS_IPAD ? 30 : 18,
+    lineHeight: IS_IPAD ? 32 : 21,
   },
   
   
@@ -1140,7 +1165,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(46, 125, 50, 0.1)',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 8,
+    borderRadius: 18,
   },
   eventDescription: {
     fontSize: 13,
@@ -1173,7 +1198,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   notificationCard: {
-    borderRadius: 12,
+    borderRadius: 28,
     padding: 16,
     shadowColor: '#000',
     shadowOpacity: 0.05,
@@ -1201,7 +1226,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 8,
+    borderRadius: 22,
   },
   enableNotificationsText: {
     color: '#fff',

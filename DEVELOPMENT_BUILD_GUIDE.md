@@ -1,5 +1,52 @@
 # 📱 Development Build Guide
 
+## ⭐ Test Before TestFlight (iOS)
+
+**You must use a Development Build to test features like background audio, lock screen playback, and notifications** — these don't work in Expo Go.
+
+### Step 1 — Install expo-dev-client ✅
+
+```bash
+npx expo install expo-dev-client
+```
+
+### Step 2 — Build a custom development build (iOS)
+
+**On a Mac (local build):**
+```bash
+npx expo run:ios
+```
+
+**Or cloud build (EAS):**
+```bash
+eas build --profile development --platform ios
+```
+
+### Step 3 — Install the Dev Build on your device
+
+- **Local build:** The app installs automatically on your connected iPhone or simulator
+- **EAS build:** Use the link or QR code Expo provides to install on your device
+
+This creates an "Expo Dev" or "Deenify" app with your custom native modules included.
+
+### Step 4 — Run your app inside the custom Dev Client
+
+```bash
+npx expo start --dev-client
+```
+
+Scan the QR code or press `i` to open on iOS. Your app will launch with:
+
+- ✅ Background audio working
+- ✅ Lock screen controls working
+- ✅ Headset controls working
+- ✅ No native module errors
+- ✅ Proper logs for debugging
+
+**This is exactly how your app will behave on TestFlight.**
+
+---
+
 ## Quick Answer: How to Build a Development Build
 
 ### For Android (Simplest Method)

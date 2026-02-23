@@ -5,9 +5,11 @@ import { Animated, Dimensions, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
-const IS_IPAD = width >= 768;
+const IS_IPAD = false; // Set true when deploying on iPad
 const IS_SMALL_PHONE = width < 400;
 const IS_LARGE_PHONE = !IS_IPAD && width >= 414;
+const IS_PRO_MAX = width >= 430;
+const IS_IPHONE_16_PRO = !IS_IPAD && width >= 390 && width < 428; // iPhone 16 Pro range (390-427px)
 
 const AnimatedHeroMessage = () => {
   const { theme } = useTheme();
@@ -156,7 +158,7 @@ const AnimatedHeroMessage = () => {
         style={[
           styles.crescentMoon,
           {
-            top: insets.top + 50, // Add safe area padding + extra space
+            top: insets.top + 16,
             opacity: crescentGlow,
             shadowOpacity: crescentGlow,
             transform: [{ scale: glowAnim }],
@@ -173,7 +175,7 @@ const AnimatedHeroMessage = () => {
           {
             transform: [{ scale: textScale }],
             opacity: textOpacity,
-            marginTop: IS_IPAD ? -20 : IS_LARGE_PHONE ? -24 : -30,
+            marginTop: IS_IPAD ? -10 : IS_PRO_MAX ? -12 : IS_LARGE_PHONE ? -14 : -18,
           },
         ]}
       >
@@ -201,7 +203,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     position: 'relative',
     overflow: 'hidden',
-    paddingTop: IS_IPAD ? 120 : IS_SMALL_PHONE ? 80 : IS_LARGE_PHONE ? 90 : 100,
+    paddingTop: IS_IPAD ? 70 : IS_SMALL_PHONE ? 45 : IS_LARGE_PHONE ? 55 : 60,
   },
   star: {
     position: 'absolute',
@@ -215,31 +217,31 @@ const styles = StyleSheet.create({
   crescentMoon: {
     position: 'absolute',
     top: 40,
-    width: IS_IPAD ? 80 : IS_SMALL_PHONE ? 50 : 60,
-    height: IS_IPAD ? 80 : IS_SMALL_PHONE ? 50 : 60,
-    borderRadius: IS_IPAD ? 40 : IS_SMALL_PHONE ? 25 : 30,
+    width: IS_IPAD ? 80 : IS_SMALL_PHONE ? 50 : IS_PRO_MAX ? 66 : 60,
+    height: IS_IPAD ? 80 : IS_SMALL_PHONE ? 50 : IS_PRO_MAX ? 66 : 60,
+    borderRadius: IS_IPAD ? 40 : IS_SMALL_PHONE ? 25 : IS_PRO_MAX ? 33 : 30,
     backgroundColor: '#F1C40F',
     shadowColor: '#F1C40F',
     shadowOffset: { width: 0, height: 0 },
-    shadowRadius: IS_IPAD ? 30 : IS_SMALL_PHONE ? 20 : 25,
+    shadowRadius: IS_IPAD ? 30 : IS_SMALL_PHONE ? 20 : IS_PRO_MAX ? 28 : 25,
     shadowOpacity: 1,
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 8,
   },
   crescentText: {
-    fontSize: IS_IPAD ? 32 : IS_SMALL_PHONE ? 20 : 24,
+    fontSize: IS_IPAD ? 32 : IS_SMALL_PHONE ? 20 : IS_PRO_MAX ? 26 : 24,
   },
   textContainer: {
     alignItems: 'center',
     zIndex: 10,
   },
   heroText: {
-    fontSize: IS_IPAD ? 72 : IS_SMALL_PHONE ? 36 : IS_LARGE_PHONE ? 44 : 52,
+    fontSize: IS_IPAD ? 72 : IS_SMALL_PHONE ? 36 : IS_PRO_MAX ? 44 : IS_IPHONE_16_PRO ? 38 : IS_LARGE_PHONE ? 44 : 52,
     fontFamily: 'CormorantGaramond-Bold',
     fontWeight: '900',
     textAlign: 'center',
-    marginBottom: IS_IPAD ? 4 : IS_LARGE_PHONE ? 6 : 8,
+    marginBottom: IS_IPAD ? 4 : IS_PRO_MAX ? 6 : IS_LARGE_PHONE ? 6 : 8,
     letterSpacing: IS_IPAD ? 2 : 1.5,
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
     textShadowOffset: { width: 2, height: 2 },
@@ -247,13 +249,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: IS_SMALL_PHONE ? 20 : 0,
   },
   subtitle: {
-    fontSize: IS_IPAD ? 32 : IS_SMALL_PHONE ? 18 : IS_LARGE_PHONE ? 22 : 24,
+    fontSize: IS_IPAD ? 32 : IS_SMALL_PHONE ? 18 : IS_PRO_MAX ? 22 : IS_LARGE_PHONE ? 22 : 24,
     fontFamily: 'CormorantGaramond-SemiBold',
     textAlign: 'center',
     opacity: 0.9,
     letterSpacing: 0.5,
     paddingHorizontal: IS_SMALL_PHONE ? 20 : 0,
-    marginTop: IS_IPAD ? 4 : IS_LARGE_PHONE ? 4 : 2,
+    marginTop: IS_IPAD ? 4 : IS_PRO_MAX ? 5 : IS_LARGE_PHONE ? 4 : 2,
   },
 });
 

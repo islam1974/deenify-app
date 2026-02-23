@@ -1,18 +1,18 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Dimensions } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Fonts } from '@/constants/theme';
 import { useTheme } from '@/contexts/ThemeContext';
-import { duas, duaCategories, getDuasByCategory } from '@/data/duasData';
-import Animated, { 
-  useAnimatedStyle, 
-  withSpring, 
-  withTiming,
-  useSharedValue,
+import { duaCategories, duas, getDuasByCategory } from '@/data/duasData';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import React, { useMemo, useState } from 'react';
+import { Dimensions, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import Animated, {
+    useAnimatedStyle,
+    useSharedValue,
+    withSpring,
+    withTiming,
 } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
 
@@ -31,6 +31,7 @@ export default function DuasScreen() {
   
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [expandedDuas, setExpandedDuas] = useState<Set<number>>(new Set());
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   const toggleDua = (id: number) => {
     const newExpanded = new Set(expandedDuas);
@@ -64,48 +65,133 @@ export default function DuasScreen() {
   };
 
   const getCategoryColor = (category: string) => {
-    const colorMap: { [key: string]: string[] } = {
-      'Daily Duas': ['#FF6B6B', '#FF8787'],
-      'Worship (ʿIbādah)': ['#4A90E2', '#5CA8F5'],
-      'Travel & Safety': ['#10B981', '#2BC897'],
-      'Health & Protection': ['#FF6B9D', '#FF87B2'],
-      'Forgiveness & Repentance': ['#A78BFA', '#B99FFB'],
-      'Rizq (Sustenance)': ['#38BDF8', '#5CC9F9'],
-      'Family & Relationships': ['#FBBF24', '#FCC944'],
-      'Special Situations': ['#F97316', '#FA8B31'],
-      'Death & Afterlife': ['#6366F1', '#7C7FF5'],
-      'General Goodness': ['#EC4899', '#EF5FA9'],
-      'Mosques & Adhan': ['#06B6D4', '#22D3EE'],
-      'Hajj & Umrah': ['#14B8A6', '#2DD4BF'],
-      'Ramadan': ['#7C3AED', '#8B5CF6'],
-      'Jumu\'ah (Friday)': ['#0EA5E9', '#38BDF8'],
-      '40 Rabbana Duas': ['#8B5CF6', '#9D6FF7']
-    };
-    return colorMap[category] || ['#6B7280', '#9CA3AF'];
+    // All category cards use the same color
+    return ['#c6ca53', '#c6ca53'];
+  };
+
+  // Filter duas based on search query
+  const filteredDuas = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    
+    const query = searchQuery.toLowerCase().trim();
+    return duas.filter(dua => 
+      dua.title.toLowerCase().includes(query) ||
+      dua.arabic.includes(query) ||
+      dua.transliteration.toLowerCase().includes(query) ||
+      dua.translation.toLowerCase().includes(query) ||
+      dua.category.toLowerCase().includes(query) ||
+      dua.subcategory.toLowerCase().includes(query) ||
+      (dua.reference?.toLowerCase().includes(query) ?? false) ||
+      (dua.times?.toLowerCase().includes(query) ?? false)
+    );
+  }, [searchQuery]);
+
+  // Render search results
+  const renderSearchResults = () => {
+    if (!searchQuery.trim()) return null;
+
+    return (
+      <View style={styles.duasListContainer}>
+        {/* Search Header */}
+        <View style={[styles.searchHeader, { 
+          backgroundColor: cardBackground,
+          borderBottomColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+        }]}>
+          <Text style={[styles.searchResultsTitle, { color: primaryTextColor }]}>
+            Search Results
+          </Text>
+          <Text style={[styles.searchResultsCount, { color: secondaryTextColor }]}>
+            {filteredDuas.length} {filteredDuas.length === 1 ? 'dua found' : 'duas found'}
+          </Text>
+        </View>
+
+        {/* Search Results List */}
+        <View style={styles.duasScrollContainer}>
+          {filteredDuas.length === 0 ? (
+            <View style={styles.noResultsContainer}>
+              <IconSymbol name="magnifyingglass" size={48} color={mutedTextColor} />
+              <Text style={[styles.noResultsText, { color: mutedTextColor }]}>
+                No duas found
+              </Text>
+              <Text style={[styles.noResultsSubtext, { color: mutedTextColor }]}>
+                Try searching with different keywords
+              </Text>
+            </View>
+          ) : (
+            filteredDuas.map((dua, index) => (
+              <DuaCard
+                key={`search-dua-${dua.id}-${index}`}
+                dua={dua}
+                isExpanded={expandedDuas.has(dua.id)}
+                onToggle={() => toggleDua(dua.id)}
+                theme={theme}
+                colors={colors}
+                cardBackground={cardBackground}
+                primaryTextColor={primaryTextColor}
+                secondaryTextColor={secondaryTextColor}
+                mutedTextColor={mutedTextColor}
+                accentTextColor={accentTextColor}
+                isDarkMode={isDarkMode}
+              />
+            ))
+          )}
+        </View>
+      </View>
+    );
   };
 
   // Render category grid (all categories in 3 columns)
   const renderCategoryGrid = () => {
-    const itemSize = (width - 48) / 3; // 3 columns with spacing
+    const categoriesWithDuas = duaCategories.filter(categoryData => {
+      const categoryDuas = getDuasByCategory(categoryData.category);
+      return categoryDuas.length > 0;
+    });
+
+    // Calculate item size for exactly 3 columns
+    const containerPadding = 40; // 20px on each side
+    const gapSize = 12;
+    const totalGaps = gapSize * 2; // 2 gaps between 3 items
+    const availableWidth = width - containerPadding - totalGaps;
+    const itemSize = availableWidth / 3;
+
+    // Group categories into rows of 3
+    const rows: typeof categoriesWithDuas[] = [];
+    for (let i = 0; i < categoriesWithDuas.length; i += 3) {
+      rows.push(categoriesWithDuas.slice(i, i + 3));
+    }
 
     return (
       <View style={styles.gridContainer}>
-        {duaCategories.map((categoryData, index) => {
-          const categoryDuas = getDuasByCategory(categoryData.category);
-          if (categoryDuas.length === 0) return null;
-
-          return (
-            <CategorySquare
-              key={`cat-${index}`}
-              category={categoryData.category}
-              duasCount={categoryDuas.length}
-              itemSize={itemSize}
-              onPress={() => setSelectedCategory(categoryData.category)}
-              getCategoryColor={getCategoryColor}
-              getCategoryIcon={getCategoryIcon}
-            />
-          );
-        })}
+        {rows.map((row, rowIndex) => (
+          <View key={`row-${rowIndex}`} style={styles.gridRow}>
+            {row.map((categoryData, itemIndex) => {
+              const categoryDuas = getDuasByCategory(categoryData.category);
+              const globalIndex = rowIndex * 3 + itemIndex;
+              
+              return (
+                <View 
+                  key={`cat-${categoryData.category}-${globalIndex}`}
+                  style={[
+                    { 
+                      width: itemSize, 
+                      height: itemSize,
+                      marginRight: itemIndex < 2 ? gapSize : 0,
+                    }
+                  ]}
+                >
+                  <CategorySquare
+                    category={categoryData.category}
+                    duasCount={categoryDuas.length}
+                    itemSize={itemSize}
+                    onPress={() => setSelectedCategory(categoryData.category)}
+                    getCategoryColor={getCategoryColor}
+                    getCategoryIcon={getCategoryIcon}
+                  />
+                </View>
+              );
+            })}
+          </View>
+        ))}
       </View>
     );
   };
@@ -120,11 +206,8 @@ export default function DuasScreen() {
     return (
       <View style={styles.duasListContainer}>
         {/* Category Header */}
-        <LinearGradient
-          colors={gradientColors}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.categoryDetailHeader}
+        <View
+          style={[styles.categoryDetailHeader, { backgroundColor: screenBackground }]}
         >
           <TouchableOpacity
             style={styles.backToCategoriesButton}
@@ -133,22 +216,22 @@ export default function DuasScreen() {
               setExpandedDuas(new Set());
             }}
           >
-            <IconSymbol name="chevron.left" size={24} color="#FFFFFF" />
-            <Text style={styles.backToCategoriesText}>Categories</Text>
+            <IconSymbol name="chevron.left" size={24} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
+            <Text style={[styles.backToCategoriesText, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Categories</Text>
           </TouchableOpacity>
           
           <View style={styles.categoryDetailInfo}>
             <IconSymbol 
               name={getCategoryIcon(selectedCategory)} 
               size={48} 
-              color="#FFFFFF" 
+              color={isDarkMode ? '#FFFFFF' : '#1F2937'} 
             />
-            <Text style={styles.categoryDetailTitle}>{selectedCategory}</Text>
-            <Text style={styles.categoryDetailCount}>
+            <Text style={[styles.categoryDetailTitle, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>{selectedCategory}</Text>
+            <Text style={[styles.categoryDetailCount, { color: isDarkMode ? '#D9E3F5' : '#1F2937' }]}>
               {categoryDuas.length} {categoryDuas.length === 1 ? 'dua' : 'duas'}
             </Text>
           </View>
-        </LinearGradient>
+        </View>
 
         {/* Duas List */}
         <View style={styles.duasScrollContainer}>
@@ -177,32 +260,63 @@ export default function DuasScreen() {
     <View style={[styles.container, { backgroundColor: screenBackground }]}>
       {/* Header - Only show when on grid view */}
       {!selectedCategory && (
-        <LinearGradient
-          colors={['#EBF4F5', '#B5C6E0']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={[styles.headerGradient, { paddingTop: insets.top + 2 }]}
+        <View
+          style={[styles.headerGradient, { backgroundColor: screenBackground, paddingTop: insets.top + 2 }]}
         >
           <TouchableOpacity 
             style={styles.backButton}
             onPress={() => router.back()}
           >
-            <IconSymbol name="chevron.left.circle.fill" size={42} color="#1F2937" />
-            <Text style={[styles.backText, { color: '#1F2937' }]}>Back</Text>
+            <IconSymbol name="chevron.left.circle.fill" size={42} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
+            <Text style={[styles.backText, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
           </TouchableOpacity>
           <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>Daily Duas</Text>
-            <Text style={styles.headerSubtitle}>الأدعية اليومية</Text>
+            <Text style={[styles.headerTitle, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Daily Duas</Text>
+            <Text style={[styles.headerSubtitle, { color: isDarkMode ? '#D9E3F5' : '#1F2937' }]}>الأدعية اليومية</Text>
           </View>
-        </LinearGradient>
+        </View>
       )}
+
+      {/* Search Bar - always visible; add top padding when header is hidden (category view) */}
+      <View style={[
+        styles.searchContainer,
+        { backgroundColor: screenBackground, paddingTop: selectedCategory ? insets.top + 8 : undefined }
+      ]}>
+        <View style={[styles.searchBar, { backgroundColor: cardBackground, borderColor: isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]}>
+          <IconSymbol name="magnifyingglass" size={20} color={mutedTextColor} />
+          <TextInput
+            style={[styles.searchInput, { color: primaryTextColor }]}
+            placeholder="Search duas..."
+            placeholderTextColor={mutedTextColor}
+            value={searchQuery}
+            onChangeText={(text) => {
+              setSearchQuery(text);
+              if (text.trim()) {
+                setSelectedCategory(null);
+              }
+            }}
+            autoCorrect={false}
+            autoCapitalize="none"
+            returnKeyType="search"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setSearchQuery('')}
+              style={styles.clearButton}
+              accessibilityLabel="Clear search"
+            >
+              <IconSymbol name="xmark.circle.fill" size={20} color={mutedTextColor} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
 
       <ScrollView 
         style={[styles.content, { backgroundColor: screenBackground }]}
         contentContainerStyle={[styles.contentContainer, selectedCategory && styles.contentContainerPadding]}
         showsVerticalScrollIndicator={false}
       >
-        {!selectedCategory ? renderCategoryGrid() : renderDuasList()}
+        {searchQuery.trim() ? renderSearchResults() : (!selectedCategory ? renderCategoryGrid() : renderDuasList())}
       </ScrollView>
     </View>
   );
@@ -251,9 +365,9 @@ function CategorySquare({
   const gradientColors = getCategoryColor(category);
 
   return (
-    <Animated.View style={[animatedStyle]}>
+    <Animated.View style={[animatedStyle, { width: '100%', height: '100%' }]}>
       <TouchableOpacity
-        style={[styles.categorySquare, { width: itemSize, height: itemSize }]}
+        style={styles.categorySquare}
         onPress={onPress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
@@ -265,11 +379,6 @@ function CategorySquare({
           end={{ x: 1, y: 1 }}
           style={styles.categoryGradient}
         >
-          <IconSymbol 
-            name={getCategoryIcon(category)} 
-            size={32} 
-            color="#FFFFFF" 
-          />
           <Text style={styles.categoryName} numberOfLines={2}>
             {category}
           </Text>
@@ -490,47 +599,55 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    padding: 16,
-    paddingBottom: 30,
+    padding: 0,
+    paddingBottom: 100,
+    minHeight: '100%',
   },
   contentContainerPadding: {
     padding: 0,
-    paddingBottom: 30,
+    paddingBottom: 40,
   },
   
   // Grid Layout
   gridContainer: {
+    width: '100%',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  gridRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
+    marginBottom: 14,
+    width: '100%',
   },
   categorySquare: {
     borderRadius: 16,
     overflow: 'hidden',
+    width: '100%',
+    height: '100%',
     ...Platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.15,
-        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.25,
+        shadowRadius: 12,
       },
       android: {
-        elevation: 6,
+        elevation: 10,
       },
     }),
   },
   categoryGradient: {
     flex: 1,
-    padding: 16,
+    padding: 18,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
   },
   categoryName: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#000000',
     textAlign: 'center',
     lineHeight: 20,
     letterSpacing: 0.4,
@@ -538,7 +655,7 @@ const styles = StyleSheet.create({
   categoryDuaCount: {
     fontSize: 13,
     fontWeight: '700',
-    color: 'rgba(255, 255, 255, 0.92)',
+    color: '#000000',
     letterSpacing: 0.2,
   },
 
@@ -548,47 +665,44 @@ const styles = StyleSheet.create({
   },
   categoryDetailHeader: {
     paddingTop: Platform.OS === 'ios' ? 50 : 20,
-    paddingBottom: 24,
-    paddingHorizontal: 20,
+    paddingBottom: 28,
+    paddingHorizontal: 24,
   },
   backToCategoriesButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   backToCategoriesText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#FFFFFF',
     marginLeft: 6,
   },
   categoryDetailInfo: {
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
   },
   categoryDetailTitle: {
     fontSize: 30,
     fontFamily: Fonts.secondary,
     fontWeight: '800',
-    color: '#FFFFFF',
     textAlign: 'center',
     letterSpacing: 0.6,
   },
   categoryDetailCount: {
     fontSize: 16,
     fontWeight: '700',
-    color: 'rgba(255, 255, 255, 0.9)',
   },
   duasScrollContainer: {
-    padding: 18,
-    gap: 16,
+    padding: 24,
+    gap: 20,
   },
 
   // Dua Card Styles
   duaCard: {
     borderRadius: 14,
     borderWidth: 1.5,
-    padding: 20,
+    padding: 24,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
@@ -605,7 +719,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    gap: 14,
+    gap: 18,
   },
   duaTitleContainer: {
     flex: 1,
@@ -613,7 +727,7 @@ const styles = StyleSheet.create({
   duaTitle: {
     fontSize: 24,
     fontWeight: '800',
-    marginBottom: 8,
+    marginBottom: 10,
     letterSpacing: 0.6,
     color: '#0B1120',
   },
@@ -625,13 +739,13 @@ const styles = StyleSheet.create({
     color: '#1F2937',
   },
   duaContent: {
-    marginTop: 18,
-    gap: 16,
+    marginTop: 24,
+    gap: 20,
   },
   duaSection: {
-    padding: 16,
+    padding: 20,
     borderRadius: 12,
-    gap: 10,
+    gap: 12,
   },
   sectionLabel: {
     fontSize: 14,
@@ -673,5 +787,59 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontStyle: 'italic',
     color: '#1F2937',
+  },
+  
+  // Search Bar Styles
+  searchContainer: {
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 12,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    padding: 0,
+  },
+  clearButton: {
+    padding: 4,
+  },
+  searchHeader: {
+    padding: 24,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+  },
+  searchResultsTitle: {
+    fontSize: 24,
+    fontFamily: Fonts.secondary,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  searchResultsCount: {
+    fontSize: 14,
+    opacity: 0.7,
+  },
+  noResultsContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 20,
+  },
+  noResultsText: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  noResultsSubtext: {
+    fontSize: 14,
+    textAlign: 'center',
   },
 });

@@ -1,6 +1,5 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Platform } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -9,7 +8,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import HijriCalendar from '@/components/HijriCalendar';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const IS_IPAD = Platform.OS === 'ios' ? Boolean((Platform as any).isPad) : SCREEN_WIDTH >= 768;
+const IS_IPAD = false; // Set true when deploying on iPad
 const IS_SMALL_PHONE = SCREEN_WIDTH < 380;
 
 export default function HijriCalendarScreen() {
@@ -21,24 +20,19 @@ export default function HijriCalendarScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
-      <LinearGradient
-        colors={['#EBF4F5', '#B5C6E0']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={[styles.headerGradient, { paddingTop: insets.top + 2 }]}
-      >
+      <View style={[styles.header, { paddingTop: insets.top + 2, backgroundColor: colors.background }]}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <IconSymbol name="chevron.left" size={IS_IPAD ? 32 : 24} color="#0B1120" />
-          <Text style={styles.backText}>Back</Text>
+          <IconSymbol name="chevron.left" size={IS_IPAD ? 32 : 24} color={colors.text} />
+          <Text style={[styles.backText, { color: colors.text }]}>Back</Text>
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerTitle}>Hijri Calendar</Text>
-          <Text style={styles.headerSubtitle}>التقويم الهجري</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Hijri Calendar</Text>
+          <Text style={[styles.headerSubtitle, { color: colors.secondaryText }]}>التقويم الهجري</Text>
         </View>
-      </LinearGradient>
+      </View>
       <ScrollView contentContainerStyle={styles.content}>
         <HijriCalendar />
       </ScrollView>
@@ -50,7 +44,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  headerGradient: {
+  header: {
     paddingBottom: 4,
     paddingHorizontal: 10,
   },
@@ -63,25 +57,22 @@ const styles = StyleSheet.create({
     fontSize: IS_IPAD ? 22 : IS_SMALL_PHONE ? 16 : 18,
     fontFamily: Fonts.secondary,
     fontWeight: '800',
-    color: '#0B1120',
     marginLeft: 6,
     letterSpacing: 0.4,
   },
   headerTitleContainer: {
     alignItems: 'center',
-    marginTop: 0,
+    marginTop: 20,
   },
   headerTitle: {
     fontSize: IS_IPAD ? 44 : IS_SMALL_PHONE ? 26 : 32,
     fontFamily: Fonts.secondary,
     fontWeight: '900',
-    color: '#0B1120',
     marginBottom: 4,
     letterSpacing: IS_IPAD ? 1.2 : 0.8,
   },
   headerSubtitle: {
     fontSize: 13,
-    color: '#34495E',
     opacity: 0.8,
     fontFamily: Fonts.primary,
   },

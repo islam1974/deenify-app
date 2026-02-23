@@ -34,6 +34,13 @@ export type Madhab = 'Standard' | 'Hanafi';
 export interface PrayerSettings {
   calculationMethod: CalculationMethod;
   madhab: Madhab;
+  azanSettings: {
+    Fajr: boolean;
+    Dhuhr: boolean;
+    Asr: boolean;
+    Maghrib: boolean;
+    Isha: boolean;
+  };
 }
 
 interface PrayerSettingsContextType {
@@ -56,6 +63,13 @@ interface PrayerSettingsContextType {
 const defaultSettings: PrayerSettings = {
   calculationMethod: 'MWL',
   madhab: 'Standard',
+  azanSettings: {
+    Fajr: true,
+    Dhuhr: true,
+    Asr: true,
+    Maghrib: true,
+    Isha: true,
+  },
 };
 
 const PrayerSettingsContext = createContext<PrayerSettingsContextType | undefined>(undefined);
@@ -79,7 +93,16 @@ export function PrayerSettingsProvider({ children }: { children: ReactNode }) {
       if (storedSettings) {
         const parsedSettings = JSON.parse(storedSettings);
         console.log('📱 Loaded prayer settings:', parsedSettings);
-        setSettings({ ...defaultSettings, ...parsedSettings });
+        // Merge with defaults to ensure azanSettings exists
+        const mergedSettings = {
+          ...defaultSettings,
+          ...parsedSettings,
+          azanSettings: {
+            ...defaultSettings.azanSettings,
+            ...(parsedSettings.azanSettings || {}),
+          },
+        };
+        setSettings(mergedSettings);
       } else {
         console.log('📱 No stored prayer settings found, using defaults');
       }

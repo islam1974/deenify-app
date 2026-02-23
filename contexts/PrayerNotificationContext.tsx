@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
-import * as Notifications from 'expo-notifications';
+import Notifications from '@/services/notificationsSafe';
 import { PrayerNotificationService } from '@/services/PrayerNotificationService';
 import { AdhanSoundService } from '@/services/AdhanSoundService';
 import PermissionRequestModal from '@/components/PermissionRequestModal';
@@ -67,6 +67,14 @@ export function PrayerNotificationProvider({ children }: { children: ReactNode }
     initializeAdhanService();
   }, []);
 
+  // Schedule notifications when settings are loaded and enabled
+  useEffect(() => {
+    if (settings.enabled) {
+      console.log('📅 Notifications enabled, scheduling prayer notifications...');
+      scheduleNotifications();
+    }
+  }, [settings.enabled]);
+
   // Handle app state changes
   useEffect(() => {
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
@@ -84,6 +92,15 @@ export function PrayerNotificationProvider({ children }: { children: ReactNode }
     try {
       const loadedSettings = await PrayerNotificationService.getSettings();
       setSettings(loadedSettings);
+      
+      // If notifications are already enabled, schedule them immediately
+      if (loadedSettings.enabled) {
+        console.log('📅 Loading settings: Notifications already enabled, scheduling...');
+        // Small delay to ensure context is ready
+        setTimeout(() => {
+          scheduleNotifications();
+        }, 1000);
+      }
     } catch (error) {
       console.error('Error loading prayer notification settings:', error);
     }

@@ -9,12 +9,12 @@ This guide will walk you through preparing your Deenify app for TestFlight submi
 - ✅ **Push Notifications**: Entitlements set to `production` 
 - ✅ **App Version**: 1.0.0
 - ✅ **Permissions**: All required permission descriptions are set
-- ✅ **Bundle Identifier**: `com.anonymous.deenifyapp`
+- ✅ **Bundle Identifier**: `com.suhelislam.deenifyapp`
 - ✅ **Privacy Policy**: Document exists (`PRIVACY_POLICY.md`)
 - ✅ **App Icon**: Configured
 
 ### Action Required ⚠️
-- ⚠️ **Bundle Identifier**: Consider changing from `com.anonymous.deenifyapp` to a custom identifier
+- ⚠️ **Bundle Identifier**: Confirm `com.suhelislam.deenifyapp` is final and registered in App Store Connect
 - ⚠️ **Privacy Policy URL**: Needs to be hosted publicly (GitHub Pages recommended)
 - ⚠️ **App Store Connect**: Need to create app listing and register bundle ID
 
@@ -57,16 +57,7 @@ This will:
 
 ### Step 5: Register Bundle Identifier in App Store Connect
 
-**Important Decision:** 
-- **Option A**: Keep `com.anonymous.deenifyapp` (if you've already registered it)
-- **Option B**: Change to a custom identifier like `com.yourname.deenify` or `com.deenify.app`
-
-**If changing bundle ID:**
-1. Update in `app.json` line 28:
-   ```json
-   "bundleIdentifier": "com.yourname.deenify"
-   ```
-2. Update in `eas.json` (already matches `app.json`)
+**Target bundle ID:** `com.suhelislam.deenifyapp`
 
 **Register in App Store Connect:**
 1. Go to [App Store Connect](https://appstoreconnect.apple.com)
@@ -76,7 +67,7 @@ This will:
 5. Select **App** and continue
 6. Enter:
    - Description: Deenify
-   - Bundle ID: `com.anonymous.deenifyapp` (or your custom one)
+   - Bundle ID: `com.suhelislam.deenifyapp`
 7. Enable capabilities: Push Notifications (if needed)
 8. Register
 
@@ -117,7 +108,7 @@ cp PRIVACY_POLICY.md docs/index.md
    - **Platform**: iOS
    - **Name**: Deenify
    - **Primary Language**: English (or your preference)
-   - **Bundle ID**: Select the one you registered (`com.anonymous.deenifyapp`)
+   - **Bundle ID**: Select the one you registered (`com.suhelislam.deenifyapp`)
    - **SKU**: Any unique identifier (e.g., `deenify-ios-001`)
    - **User Access**: Full Access (or Limited if working with a team)
 4. Click **Create**
@@ -211,10 +202,34 @@ After upload:
 3. You'll receive an email when processing is complete
 4. Once processed, build becomes available for testing
 
+### Step 12a: What TestFlight Shows
+
+You’ll see one of these:
+
+**A) “No Builds Available”**
+- This is normal if you haven’t uploaded yet.
+- Next action: upload your first build
+```bash
+eas build -p ios
+```
+When it finishes:
+```bash
+eas submit -p ios
+```
+
+**B) A build listed as “Processing”**
+- Apple is processing it.
+- Wait 10–60 minutes.
+- No action needed.
+
+**C) A build listed as “Ready to Test”**
+- You’re ready to add testers.
+
 ### Step 13: Configure TestFlight
 
 1. **Internal Testing**:
    - Add internal testers (up to 100)
+   - Testers must be App Store Connect users
    - They can test immediately after processing
 
 2. **External Testing** (Optional):
@@ -235,6 +250,18 @@ After upload:
 4. They install TestFlight app from App Store
 5. They install your app from TestFlight
 
+### Step 14a: Internal Testing for Family & Friends
+
+**Option A (Internal testers, no review delay):**
+- Invite them to App Store Connect as users
+- Assign a minimal role (e.g., Marketing or Developer)
+- Add them to Internal Testers
+
+**Option B (External testers, no App Store Connect access):**
+- Create an External Testing group
+- Submit the build for Beta App Review
+- Add their emails as External Testers
+
 ---
 
 ## 🔍 Pre-Build Checklist
@@ -243,6 +270,7 @@ Before running the build command, verify:
 
 - [ ] **Version Number**: `1.0.0` in `app.json` (looks good)
 - [ ] **Bundle Identifier**: Set correctly in `app.json`
+- [ ] **Build Number**: `1` in `app.json` (or auto-increment via EAS)
 - [ ] **App Icon**: Present at `./assets/images/Deenify_Icon.png`
 - [ ] **Entitlements**: Set to `production` ✅
 - [ ] **Permissions**: All descriptions present ✅
@@ -334,7 +362,7 @@ Once your app is tested on TestFlight:
 Your app is **almost ready** for TestFlight! The main actions needed are:
 
 1. ✅ **EAS Configuration**: Created (`eas.json`)
-2. ⚠️ **Bundle ID Decision**: Decide if you want to keep `com.anonymous.deenifyapp` or change it
+2. ⚠️ **Bundle ID Confirmation**: Register `com.suhelislam.deenifyapp` in App Store Connect
 3. ⚠️ **Privacy Policy Hosting**: Host your privacy policy (GitHub Pages recommended)
 4. ⚠️ **App Store Connect Setup**: Create app listing and register bundle ID
 5. ⚠️ **Build & Submit**: Run build command and submit to TestFlight

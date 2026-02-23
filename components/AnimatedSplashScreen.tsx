@@ -23,7 +23,7 @@ import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
-const IS_IPAD = width >= 768;
+const IS_IPAD = false; // Set true when deploying on iPad
 
 interface AnimatedSplashScreenProps {
   onAnimationFinish: () => void;
@@ -101,10 +101,10 @@ export default function AnimatedSplashScreen({ onAnimationFinish }: AnimatedSpla
       textOpacity.value = withDelay(1000, withTiming(1, { duration: 600 }));
       textTranslateY.value = withDelay(1000, withTiming(0, { duration: 600 }));
       
-      // Finish animation after 4 seconds
+      // Finish animation after 2 seconds
       setTimeout(() => {
         runOnJS(onAnimationFinish)();
-      }, 4000);
+      }, 1500);
     };
 
     startAnimations();
@@ -282,7 +282,7 @@ const styles = StyleSheet.create({
     marginBottom: IS_IPAD ? -80 : width <= 375 ? -30 : width < 410 ? -40 : -50,
   },
   appName: {
-    fontSize: IS_IPAD ? 120 : width <= 375 ? 60 : width < 410 ? 76 : 100,
+    fontSize: IS_IPAD ? 120 : width <= 375 ? 48 : width < 410 ? 58 : 76,
     fontWeight: '900',
     color: '#ffffff',
     textAlign: 'center',
@@ -295,7 +295,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   tagline: {
-    fontSize: IS_IPAD ? 36 : width <= 375 ? 18 : width < 410 ? 22 : 28,
+    fontSize: IS_IPAD ? 36 : width <= 375 ? 15 : width < 410 ? 18 : 22,
     color: '#ffffff',
     textAlign: 'center',
     fontStyle: 'italic',

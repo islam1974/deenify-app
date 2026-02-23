@@ -141,7 +141,7 @@ export default function PrivacyPolicyScreen() {
 
           <Text style={[styles.subsectionTitle, { color: colors.text }]}>Audio/Media (Optional)</Text>
           <Text style={[styles.paragraph, { color: colors.text }]}>
-            Used to play Quran recitations and adhan (call to prayer). No data is collected from this permission.
+            Used to play Quran recitations and prayer notification sounds. No data is collected from this permission.
           </Text>
         </View>
 

@@ -66,7 +66,7 @@ Required for prayer times calculation, Qibla direction, and mosque finder. You c
 Required to receive prayer time reminders. Entirely optional and can be disabled at any time.
 
 ### Audio/Media (Optional)
-Used to play Quran recitations and adhan (call to prayer). No data is collected from this permission.
+Used to play Quran recitations and prayer notification sounds. No data is collected from this permission.
 
 ## Third-Party Services
 

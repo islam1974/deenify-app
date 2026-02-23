@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Switch } from 'react-native';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -8,7 +8,7 @@ import { useQuranSettings, Translator } from '@/contexts/QuranSettingsContext';
 export default function TranslatorSettings() {
   const colorScheme = useColorScheme();
   const colors = Colors[((colorScheme ?? 'light' as 'light' | 'dark') ?? 'light' as 'light' | 'dark') ?? 'light'];
-  const { settings, updateTranslator, getTranslatorOptions } = useQuranSettings();
+  const { settings, updateTranslator, toggleTranslation, getTranslatorOptions } = useQuranSettings();
   const translatorOptions = getTranslatorOptions();
 
   const handleTranslatorSelect = (translatorId: Translator) => {
@@ -25,11 +25,37 @@ export default function TranslatorSettings() {
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.header}>
         <Text style={[styles.title, { color: colors.text }]}>
-          Choose Translator
+          Translations
         </Text>
         <Text style={[styles.subtitle, { color: colors.text }]}>
-          Select your preferred English translation
+          Show or hide translation and choose your preferred translator
         </Text>
+      </View>
+
+      <View style={styles.toggleSection}>
+        <View style={[styles.toggleRow, { backgroundColor: colors.cardBackground, borderColor: colors.border }]}>
+          <View style={styles.toggleLeft}>
+            <IconSymbol
+              name={settings.showTranslation ? 'text.bubble.fill' : 'text.bubble'}
+              size={24}
+              color={colors.tint}
+            />
+            <View>
+              <Text style={[styles.toggleTitle, { color: colors.text }]}>
+                Show translation
+              </Text>
+              <Text style={[styles.toggleSubtitle, { color: colors.text }]}>
+                {settings.showTranslation ? 'Arabic and translation shown' : 'No translation — Arabic only'}
+              </Text>
+            </View>
+          </View>
+          <Switch
+            value={settings.showTranslation}
+            onValueChange={toggleTranslation}
+            trackColor={{ false: colors.border, true: colors.tint + '80' }}
+            thumbColor={settings.showTranslation ? colors.tint : colors.text}
+          />
+        </View>
       </View>
 
       <View style={styles.currentSection}>
@@ -165,6 +191,34 @@ const styles = StyleSheet.create({
     fontSize: 16,
     opacity: 0.7,
     textAlign: 'center',
+  },
+  toggleSection: {
+    paddingHorizontal: 20,
+    marginBottom: 8,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  toggleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  toggleTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 2,
+    marginLeft: 12,
+  },
+  toggleSubtitle: {
+    fontSize: 13,
+    opacity: 0.7,
+    marginLeft: 12,
   },
   currentSection: {
     padding: 20,

@@ -64,9 +64,9 @@ function SettingsScreenContent() {
           onToggle: () => toggleLocationServices(!locationEnabled),
         },
         {
-          icon: 'speaker.wave.2.fill',
-          title: 'Adhan Sound',
-          subtitle: prayerNotificationSettings.adhanEnabled ? 'Adhan enabled' : 'Play adhan for prayer times',
+          icon: 'bell.badge.fill',
+          title: 'Prayer Notifications',
+          subtitle: prayerNotificationSettings.adhanEnabled ? 'Reminders enabled' : 'Prayer time reminders',
           type: 'navigation',
           onPress: () => {
             setCurrentModal('adhanSettings');
@@ -227,7 +227,7 @@ function SettingsScreenContent() {
             // Uncomment and replace APP_ID when published:
             // const storeUrl = Platform.OS === 'ios' 
             //   ? 'https://apps.apple.com/app/id[APP_ID]'
-            //   : 'https://play.google.com/store/apps/details?id=com.deenify.app';
+            //   : 'https://play.google.com/store/apps/details?id=com.suhelislam.deenifyapp';
             // Linking.openURL(storeUrl);
           },
         },

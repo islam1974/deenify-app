@@ -147,16 +147,51 @@ export default function AboutScreen() {
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Acknowledgments</Text>
           <Text style={[styles.paragraph, { color: colors.text }]}>
-            Deenify uses the following resources and APIs:
+            Deenify uses the following resources and APIs. We are grateful to the developers and contributors.
           </Text>
           <Text style={[styles.creditItem, { color: colors.text }]}>
-            • Quran text and audio from Quran.com
+            • Quran text (Arabic and translations):{' '}
+            <Text style={[styles.creditLink, { color: colors.tint }]} onPress={() => handleOpenLink('https://github.com/fawazahmed0/quran-api')}>
+              fawazahmed0/quran-api
+            </Text>
+            {' '}(Unlicense).
           </Text>
           <Text style={[styles.creditItem, { color: colors.text }]}>
-            • Prayer times from Aladhan API
+            • Quran audio: streamed from{' '}
+            <Text style={[styles.creditLink, { color: colors.tint }]} onPress={() => handleOpenLink('https://www.everyayah.com/')}>
+              everyayah.com
+            </Text>
+            {' '}(Alafasy, Husary, Abdul Basit, and others). All rights remain with the original reciters.
           </Text>
           <Text style={[styles.creditItem, { color: colors.text }]}>
-            • Hadith collections from various authentic sources
+            • Prayer times & Hijri dates:{' '}
+            <Text style={[styles.creditLink, { color: colors.tint }]} onPress={() => handleOpenLink('https://aladhan.com')}>
+              Aladhan API
+            </Text>
+            {' '}(Islamic Network). Fallback: UmmahAPI.
+          </Text>
+          <Text style={[styles.creditItem, { color: colors.text }]}>
+            • Prayer calculations: adhan library by{' '}
+            <Text style={[styles.creditLink, { color: colors.tint }]} onPress={() => handleOpenLink('https://github.com/batoulapps/Adhan')}>
+              batoulapps
+            </Text>
+            {' '}(MIT).
+          </Text>
+          <Text style={[styles.creditItem, { color: colors.text }]}>
+            • Hadith:{' '}
+            <Text style={[styles.creditLink, { color: colors.tint }]} onPress={() => handleOpenLink('https://hadithapi.com')}>
+              Hadith API
+            </Text>
+          </Text>
+          <Text style={[styles.creditItem, { color: colors.text }]}>
+            • Mosque finder: ©{' '}
+            <Text style={[styles.creditLink, { color: colors.tint }]} onPress={() => handleOpenLink('https://www.openstreetmap.org/copyright')}>
+              OpenStreetMap
+            </Text>
+            {' '}contributors (Overpass API).
+          </Text>
+          <Text style={[styles.creditItem, { color: colors.text }]}>
+            • Duas: Traditional Islamic prayers (public domain).
           </Text>
         </View>
 
@@ -337,6 +372,10 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 6,
     opacity: 0.8,
+  },
+  creditLink: {
+    opacity: 1,
+    textDecorationLine: 'underline',
   },
   contactButton: {
     flexDirection: 'row',

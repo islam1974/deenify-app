@@ -1,17 +1,19 @@
 import LocationWrapper from '@/components/LocationWrapper';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Fonts } from '@/constants/theme';
 import { useLocation } from '@/contexts/LocationContext';
+import { usePrayerNotifications } from '@/contexts/PrayerNotificationContext';
 import { usePrayerSettings } from '@/contexts/PrayerSettingsContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { PrayerTimesService } from '@/services/PrayerTimesService';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Dimensions, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Dimensions, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const IS_IPAD = Platform.OS === 'ios' ? Boolean((Platform as any).isPad) : SCREEN_WIDTH >= 768;
+const IS_IPAD = false; // Set true when deploying on iPad
 const IS_SMALL_PHONE = SCREEN_WIDTH < 400;
 
 interface PrayerTime {
@@ -27,7 +29,8 @@ function PrayerTimesContent() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { location, locationEnabled } = useLocation();
-  const { settings: prayerSettings } = usePrayerSettings();
+  const { settings: prayerSettings, updateSettings: updatePrayerSettings, getCalculationMethodInfo } = usePrayerSettings();
+  const { scheduleNotifications, settings: notificationSettings } = usePrayerNotifications();
   const [prayerTimes, setPrayerTimes] = useState<PrayerTime[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +41,7 @@ function PrayerTimesContent() {
   const [timezoneOffset, setTimezoneOffset] = useState('');
   const [locationTimezone, setLocationTimezone] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [disclaimerVisible, setDisclaimerVisible] = useState(false);
 
   // Check DST status and update timezone offset
   const checkDST = async () => {
@@ -98,6 +102,13 @@ function PrayerTimesContent() {
   useEffect(() => {
     checkDST();
   }, [locationTimezone]);
+
+  // Reschedule notifications when azan settings change (if notifications are enabled)
+  useEffect(() => {
+    if (notificationSettings.enabled) {
+      scheduleNotifications();
+    }
+  }, [prayerSettings.azanSettings]);
 
   const fetchPrayerTimes = async () => {
     console.log('🕌 fetchPrayerTimes called with:', { location, locationEnabled, prayerSettings, selectedDate });
@@ -257,16 +268,16 @@ function PrayerTimesContent() {
     if (!isToday()) {
       return null;
     }
-    
-    const now = new Date();
-    const currentTimeString = now.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
 
-    const [currentHours, currentMinutes] = currentTimeString.split(':').map(Number);
-    const currentTimeMinutes = currentHours * 60 + currentMinutes;
+    const tz = location?.timezone || locationTimezone;
+    const currentTimeMinutes = tz
+      ? PrayerTimesService.getNowInTimezone(tz).timeMinutes
+      : (() => {
+          const now = new Date();
+          const s = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+          const [h, m] = s.split(':').map(Number);
+          return h * 60 + m;
+        })();
 
     for (let i = 0; i < prayerTimes.length; i++) {
       const prayer = prayerTimes[i];
@@ -293,33 +304,33 @@ function PrayerTimesContent() {
     const nextPrayer = getNextPrayer();
     if (!nextPrayer) return null;
 
-    const now = new Date();
     const timeWithoutPeriod = nextPrayer.time.replace(' AM', '').replace(' PM', '');
     const [prayerHours, prayerMinutes] = timeWithoutPeriod.split(':').map(Number);
-    
-    let prayerTimeHours = prayerHours;
+    let prayerTimeMinutes = prayerHours * 60 + prayerMinutes;
     if (nextPrayer.time.includes('AM') && prayerHours === 12) {
-      prayerTimeHours = 0;
+      prayerTimeMinutes = prayerMinutes;
     } else if (nextPrayer.time.includes('PM') && prayerHours !== 12) {
-      prayerTimeHours = prayerHours + 12;
-    }
-    
-    const prayerTime = new Date();
-    prayerTime.setHours(prayerTimeHours, prayerMinutes, 0, 0);
-    
-    if (prayerTime <= now) {
-      prayerTime.setDate(prayerTime.getDate() + 1);
+      prayerTimeMinutes = (prayerHours + 12) * 60 + prayerMinutes;
     }
 
-    const diffMs = prayerTime.getTime() - now.getTime();
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    const tz = location?.timezone || locationTimezone;
+    const nowMinutes = tz
+      ? PrayerTimesService.getNowInTimezone(tz).timeMinutes
+      : (() => {
+          const now = new Date();
+          const s = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+          const [h, m] = s.split(':').map(Number);
+          return h * 60 + m;
+        })();
 
+    let diffMinutes = prayerTimeMinutes - nowMinutes;
+    if (diffMinutes <= 0) diffMinutes += 24 * 60;
+    const diffHours = Math.floor(diffMinutes / 60);
+    const mins = diffMinutes % 60;
     if (diffHours > 0) {
-      return `${diffHours}h ${diffMinutes}m`;
-    } else {
-      return `${diffMinutes}m`;
+      return `${diffHours}h ${mins}m`;
     }
+    return `${mins}m`;
   };
 
   const nextPrayer = getNextPrayer();
@@ -327,7 +338,7 @@ function PrayerTimesContent() {
   const { requestLocation } = useLocation();
 
   return (
-    <View style={[styles.container, { backgroundColor: '#7d9b1c' }]}>
+    <View style={[styles.container, { backgroundColor: '#070d1b' }]}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 2 }]}>
         <View style={styles.headerTopRow}>
@@ -335,7 +346,7 @@ function PrayerTimesContent() {
             style={styles.backButton}
             onPress={() => router.back()}
           >
-            <IconSymbol name="chevron.left" size={IS_IPAD ? 40 : 32} color="#2C3E50" />
+            <IconSymbol name="chevron.left" size={IS_IPAD ? 40 : 32} color="#FFFFFF" />
             <Text style={styles.backText}>Back</Text>
           </TouchableOpacity>
           <TouchableOpacity 
@@ -346,7 +357,7 @@ function PrayerTimesContent() {
             <IconSymbol 
               name="arrow.clockwise" 
               size={IS_IPAD ? 34 : 28} 
-              color="#2C3E50" 
+              color="#FFFFFF" 
             />
           </TouchableOpacity>
         </View>
@@ -393,11 +404,11 @@ function PrayerTimesContent() {
           </TouchableOpacity>
         </View>
 
-        {/* Location and Date Info */}
-        <View style={[styles.infoCard, { backgroundColor: '#2c2a8d', borderColor: colors.border }]}>
-          <View style={styles.infoRow}>
-            <IconSymbol name="location.fill" size={IS_IPAD ? 26 : 20} color="#FFFFFF" />
-            <Text style={[styles.infoText, { color: '#FFFFFF' }]}>
+        {/* Simple Location and Calculation Method Info */}
+        <View style={[styles.simpleInfoCard, { backgroundColor: '#252560', borderColor: colors.border }]}>
+          <View style={styles.simpleInfoRow}>
+            <IconSymbol name="location.fill" size={IS_IPAD ? 18 : 15} color="rgba(255,255,255,0.92)" />
+            <Text style={[styles.simpleInfoText, { color: 'rgba(255,255,255,0.92)' }]}>
               {location ? (
                 location.city && location.city !== 'Unknown City'
                   ? `${location.city}, ${location.country}`
@@ -407,31 +418,12 @@ function PrayerTimesContent() {
               ) : 'New York, USA'}
             </Text>
           </View>
-          <View style={styles.infoRow}>
-            <IconSymbol name="calendar" size={IS_IPAD ? 26 : 20} color="#FFFFFF" />
-            <Text style={[styles.infoText, { color: '#FFFFFF' }]}>
-              {selectedDate.toLocaleDateString('en-US', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
-              })}
+          <View style={styles.simpleInfoRow}>
+            <IconSymbol name="clock.fill" size={IS_IPAD ? 18 : 15} color="rgba(255,255,255,0.92)" />
+            <Text style={[styles.simpleInfoText, { color: 'rgba(255,255,255,0.92)' }]}>
+              {getCalculationMethodInfo(prayerSettings.calculationMethod).name}
             </Text>
           </View>
-          <View style={styles.infoRow}>
-            <IconSymbol name="clock.fill" size={IS_IPAD ? 26 : 20} color="#FFFFFF" />
-            <Text style={[styles.infoText, { color: '#FFFFFF' }]}>
-              {locationTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone} ({timezoneOffset})
-            </Text>
-          </View>
-          {hijriDate && (
-            <View style={styles.infoRow}>
-              <IconSymbol name="moon.stars.fill" size={IS_IPAD ? 26 : 20} color="#FFFFFF" />
-              <Text style={[styles.infoText, { color: '#FFFFFF', fontFamily: Fonts.primary }]}>
-                {hijriDate}
-              </Text>
-            </View>
-          )}
         </View>
 
       {/* Next Prayer Card */}
@@ -463,6 +455,16 @@ function PrayerTimesContent() {
         </View>
       )}
 
+        {/* Disclaimer trigger - just below next prayer card */}
+        <TouchableOpacity
+          style={styles.disclaimerTrigger}
+          onPress={() => setDisclaimerVisible(true)}
+          activeOpacity={0.7}
+        >
+          <IconSymbol name="info.circle.fill" size={IS_IPAD ? 20 : 16} color="rgba(255,255,255,0.7)" />
+          <Text style={styles.disclaimerTriggerText}>Note about prayer times</Text>
+        </TouchableOpacity>
+
         {/* All Prayer Times */}
       {isLoading ? (
           <View style={styles.loadingContainer}>
@@ -475,16 +477,23 @@ function PrayerTimesContent() {
             <Text style={[styles.errorText, { color: colors.text }]}>{error}</Text>
           </View>
         ) : (
-          <View style={[styles.prayerTimesCard, { backgroundColor: '#4743e2', borderColor: colors.border }]}>
+          <LinearGradient
+            colors={['#5a6068', '#454b52']}
+            style={[styles.prayerTimesCard, { borderColor: colors.border }]}
+          >
             <Text style={[styles.cardTitle, { color: '#FFFFFF' }]}>All Prayer Times</Text>
             {prayerTimes.map((prayer, index) => {
               const isNext = nextPrayer?.name === prayer.name;
+              const prayerKey = prayer.name as keyof typeof prayerSettings.azanSettings;
+              const isAzanEnabled = prayerSettings.azanSettings[prayerKey] ?? true;
+              
               return (
                 <View 
                   key={index} 
                   style={[
                     styles.prayerRow, 
-                    { borderBottomColor: 'rgba(255, 255, 255, 0.2)' }
+                    { borderBottomColor: 'rgba(255, 255, 255, 0.2)' },
+                    isNext && styles.prayerRowNext,
                   ]}
                 >
                   <View style={styles.prayerNameContainer}>
@@ -495,15 +504,64 @@ function PrayerTimesContent() {
                       {prayer.arabic}
                     </Text>
                   </View>
-                  <Text style={[styles.prayerTime, { color: '#FFFFFF' }]}>
-                    {prayer.time}
-                  </Text>
+                  <View style={styles.prayerTimeContainer}>
+                    <Text style={[styles.prayerTime, { color: '#FFFFFF' }]}>
+                      {prayer.time}
+                    </Text>
+                    <View style={styles.azanToggleContainer}>
+                      <Text style={[styles.azanLabel, { color: '#FFFFFF' }]}>Reminder</Text>
+                      <View style={styles.switchWrapper}>
+                        <Switch
+                          value={isAzanEnabled}
+                          onValueChange={async (value) => {
+                            await updatePrayerSettings({
+                              azanSettings: {
+                                ...prayerSettings.azanSettings,
+                                [prayerKey]: value,
+                              },
+                            });
+                          }}
+                          trackColor={{ false: 'rgba(255, 255, 255, 0.3)', true: '#4CAF50' }}
+                          thumbColor={isAzanEnabled ? '#FFFFFF' : '#f4f3f4'}
+                          ios_backgroundColor="rgba(255, 255, 255, 0.3)"
+                        />
+                      </View>
+                    </View>
+                  </View>
                 </View>
               );
             })}
-          </View>
+          </LinearGradient>
         )}
+
       </ScrollView>
+
+      {/* Disclaimer modal */}
+      <Modal
+        visible={disclaimerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDisclaimerVisible(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setDisclaimerVisible(false)}>
+          <Pressable style={styles.disclaimerModalContent} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.disclaimerModalHeader}>
+              <IconSymbol name="info.circle.fill" size={IS_IPAD ? 28 : 24} color="#4CAF50" />
+              <Text style={styles.disclaimerModalTitle}>Note about prayer times</Text>
+            </View>
+            <Text style={styles.disclaimerModalText}>
+              Your area might use some other calculation method and prayer times can differ. Please always verify with your area's prayer times and keep us informed of any discrepancies.
+            </Text>
+            <TouchableOpacity
+              style={[styles.disclaimerModalButton, { backgroundColor: '#4CAF50' }]}
+              onPress={() => setDisclaimerVisible(false)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.disclaimerModalButtonText}>Got it</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -538,7 +596,7 @@ const styles = StyleSheet.create({
   },
   refreshButton: {
     padding: IS_IPAD ? 12 : 10,
-    borderRadius: 10,
+    borderRadius: 14,
     backgroundColor: 'rgba(255, 255, 255, 0.35)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.5)',
@@ -547,7 +605,7 @@ const styles = StyleSheet.create({
   backText: {
     fontSize: IS_IPAD ? 18 : 14,
     fontWeight: '600',
-    color: '#2C3E50',
+    color: '#FFFFFF',
     marginLeft: 3,
   },
   headerTitleContainer: {
@@ -555,16 +613,16 @@ const styles = StyleSheet.create({
     marginTop: 0,
   },
   headerTitle: {
-    fontSize: IS_IPAD ? 48 : 32,
+    fontSize: IS_IPAD ? 56 : 40,
     fontFamily: Fonts.secondary,
     fontWeight: '900',
-    color: '#0B1120',
+    color: '#FFFFFF',
     marginBottom: 2,
     letterSpacing: IS_IPAD ? 1.5 : 1,
   },
   headerSubtitle: {
-    fontSize: IS_IPAD ? 20 : 15,
-    color: '#1F2937',
+    fontSize: IS_IPAD ? 24 : 18,
+    color: '#FFFFFF',
     opacity: 0.85,
     fontWeight: '700',
   },
@@ -614,7 +672,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
     paddingHorizontal: IS_IPAD ? 20 : 16,
     paddingVertical: IS_IPAD ? 8 : 6,
-    borderRadius: 12,
+    borderRadius: 16,
     marginTop: 4,
   },
   todayButtonText: {
@@ -622,8 +680,33 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
   },
+  simpleInfoCard: {
+    borderRadius: IS_IPAD ? 22 : 18,
+    borderWidth: 0,
+    padding: IS_IPAD ? 10 : 8,
+    marginBottom: IS_IPAD ? 16 : 14,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 12,
+    },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  simpleInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: IS_IPAD ? 4 : 3,
+  },
+  simpleInfoText: {
+    fontSize: IS_IPAD ? 14 : IS_SMALL_PHONE ? 11 : 12,
+    marginLeft: 6,
+    flex: 1,
+    fontWeight: '500',
+  },
   infoCard: {
-    borderRadius: IS_IPAD ? 16 : 12,
+    borderRadius: IS_IPAD ? 24 : 20,
     borderWidth: 0,
     padding: IS_IPAD ? 24 : 16,
     marginBottom: IS_IPAD ? 24 : 20,
@@ -647,9 +730,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   nextPrayerCard: {
-    borderRadius: IS_IPAD ? 16 : 12,
-    padding: IS_IPAD ? 28 : 20,
-    marginBottom: IS_IPAD ? 24 : 20,
+    borderRadius: IS_IPAD ? 24 : 20,
+    padding: IS_IPAD ? 24 : 22,
+    minHeight: IS_IPAD ? 140 : 120,
+    marginBottom: IS_IPAD ? 16 : 14,
     borderWidth: 0,
     shadowColor: '#000',
     shadowOffset: {
@@ -661,10 +745,10 @@ const styles = StyleSheet.create({
     elevation: 30,
   },
   nextPrayerLabel: {
-    fontSize: IS_IPAD ? 28 : 20,
+    fontSize: IS_IPAD ? 22 : 16,
     fontFamily: Fonts.secondary,
     fontWeight: '800',
-    marginBottom: 16,
+    marginBottom: 10,
     opacity: 0.95,
   },
   nextPrayerInfo: {
@@ -673,35 +757,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   nextPrayerName: {
-    fontSize: IS_IPAD ? 44 : 32,
+    fontSize: IS_IPAD ? 34 : 26,
     fontFamily: Fonts.secondary,
     fontWeight: '900',
-    marginBottom: 8,
+    marginBottom: 5,
   },
   nextPrayerArabic: {
-    fontSize: IS_IPAD ? 36 : 24,
+    fontSize: IS_IPAD ? 30 : 20,
     fontFamily: Fonts.primary,
   },
   nextPrayerTimeContainer: {
     alignItems: 'flex-end',
   },
   nextPrayerTime: {
-    fontSize: IS_IPAD ? 48 : 36,
+    fontSize: IS_IPAD ? 44 : 34,
     fontFamily: Fonts.secondary,
     fontWeight: '900',
   },
   timeRemaining: {
-    fontSize: IS_IPAD ? 26 : 18,
-    marginTop: 6,
-    opacity: 0.95,
+    fontSize: IS_IPAD ? 17 : 13,
+    marginTop: 3,
+    opacity: 0.82,
     fontFamily: Fonts.secondary,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   prayerTimesCard: {
-    borderRadius: IS_IPAD ? 20 : 16,
+    borderRadius: IS_IPAD ? 28 : 24,
+    overflow: 'hidden',
     borderWidth: 0,
-    padding: IS_IPAD ? 24 : 16,
-    marginBottom: IS_IPAD ? 24 : 20,
+    padding: IS_IPAD ? 18 : 12,
+    marginBottom: IS_IPAD ? 16 : 14,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -712,39 +797,67 @@ const styles = StyleSheet.create({
     elevation: 30,
   },
   cardTitle: {
-    fontSize: IS_IPAD ? 42 : 26,
+    fontSize: IS_IPAD ? 32 : 20,
     fontFamily: Fonts.secondary,
     fontWeight: '900',
-    marginBottom: IS_IPAD ? 24 : 20,
+    marginBottom: IS_IPAD ? 16 : 14,
+    color: '#FFFFFF',
   },
   prayerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: IS_IPAD ? 16 : 12,
+    paddingVertical: IS_IPAD ? 13 : 11,
     borderBottomWidth: 1,
+  },
+  prayerRowNext: {
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderLeftWidth: 4,
+    borderLeftColor: '#4CAF50',
+    paddingLeft: 10,
   },
   prayerNameContainer: {
     flex: 1,
   },
   prayerName: {
-    fontSize: IS_IPAD ? 36 : 24,
+    fontSize: IS_IPAD ? 30 : 20,
     fontFamily: Fonts.secondary,
     fontWeight: '800',
     marginBottom: 2,
+    color: '#FFFFFF',
   },
   prayerArabic: {
-    fontSize: IS_IPAD ? 30 : 22,
+    fontSize: IS_IPAD ? 26 : 18,
     fontFamily: Fonts.primary,
     opacity: 0.9,
+    color: '#FFFFFF',
+  },
+  prayerTimeContainer: {
+    alignItems: 'flex-end',
   },
   prayerTime: {
-    fontSize: IS_IPAD ? 34 : 24,
+    fontSize: IS_IPAD ? 28 : 20,
     fontFamily: Fonts.secondary,
     fontWeight: '800',
+    marginBottom: IS_IPAD ? 5 : 4,
+    color: '#FFFFFF',
+  },
+  azanToggleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: IS_IPAD ? 10 : 8,
+  },
+  azanLabel: {
+    fontSize: IS_IPAD ? 18 : 14,
+    fontWeight: '600',
+    opacity: 0.9,
+    color: '#FFFFFF',
+  },
+  switchWrapper: {
+    transform: [{ scaleX: 0.75 }, { scaleY: 0.75 }],
   },
   settingsCard: {
-    borderRadius: 12,
+    borderRadius: 20,
     borderWidth: 1,
     padding: 16,
     marginBottom: 32,
@@ -794,6 +907,63 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontSize: IS_IPAD ? 18 : 14,
     textAlign: 'center',
+  },
+  disclaimerTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+    marginHorizontal: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  disclaimerTriggerText: {
+    fontSize: IS_IPAD ? 15 : 13,
+    color: 'rgba(255,255,255,0.8)',
+    fontWeight: '500',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  disclaimerModalContent: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: '#1a1d24',
+    borderRadius: 24,
+    padding: IS_IPAD ? 28 : 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  disclaimerModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  disclaimerModalTitle: {
+    fontSize: IS_IPAD ? 22 : 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  disclaimerModalText: {
+    fontSize: IS_IPAD ? 16 : 14,
+    lineHeight: IS_IPAD ? 24 : 22,
+    color: 'rgba(255,255,255,0.9)',
+    marginBottom: 24,
+  },
+  disclaimerModalButton: {
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  disclaimerModalButtonText: {
+    color: '#FFFFFF',
+    fontSize: IS_IPAD ? 17 : 15,
+    fontWeight: '600',
   },
 });
 

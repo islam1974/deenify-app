@@ -6,6 +6,7 @@ import { useLocation } from '@/contexts/LocationContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { Hadith, hadiths } from '@/data/hadithData';
 import { PrayerTimesService } from '@/services/PrayerTimesService';
+import { getRamadanStartGregorian, getTargetRamadanYear } from '@/services/RamadanService';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -25,12 +26,13 @@ import Reanimated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const IS_IPAD = Platform.OS === 'ios' ? Boolean((Platform as any).isPad) : SCREEN_WIDTH >= 768;
+const IS_IPAD = false; // Set true when deploying on iPad
 const IS_SMALL_PHONE = SCREEN_WIDTH < 400;
 const IS_LARGE_PHONE = !IS_IPAD && SCREEN_WIDTH >= 414;
+const IS_PRO_MAX = SCREEN_WIDTH >= 430;
 const CARD_SIZE = IS_IPAD 
   ? Math.min((SCREEN_WIDTH - 120) / 3, 240) // iPad: 3 columns, larger cards
-  : Math.min((SCREEN_WIDTH - 80) / 2, 175); // Phone: 2 columns, slightly larger
+  : Math.min((SCREEN_WIDTH - 80) / 2, 175); // Phone: 2 columns (same for large/Pro Max to avoid layout shift)
 
 interface QuickAction {
   title: string;
@@ -39,14 +41,22 @@ interface QuickAction {
   color: string;
 }
 
+// Set to true to preview Ramadan-in-progress layout (Ramadan Day X, Suhoor/Iftar). Set back to false when done.
+const FORCE_RAMADAN_PREVIEW = false;
+
 function LanyardCard() {
+  const router = useRouter();
   const { theme } = useTheme();
   const colors = Colors[((theme as 'light' | 'dark') ?? 'light' as 'light' | 'dark') ?? 'light'];
   const { location, locationEnabled } = useLocation();
   const [prayerTimes, setPrayerTimes] = useState<any[]>([]);
+  const [locationTimezone, setLocationTimezone] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [hijriDate, setHijriDate] = useState<string>('');
+  const [daysUntilRamadan, setDaysUntilRamadan] = useState<number | null>(null);
+  const [ramadanStartDate, setRamadanStartDate] = useState<string>('');
+  const [ramadanStartDateObj, setRamadanStartDateObj] = useState<Date | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -77,13 +87,17 @@ function LanyardCard() {
     setIsLoading(true);
     try {
       let times: any[];
-      
       if (location.latitude !== 0 && location.longitude !== 0) {
-        times = await PrayerTimesService.getPrayerTimes(location.latitude, location.longitude);
+        const result = await PrayerTimesService.getPrayerTimesWithTimezone(
+          location.latitude,
+          location.longitude
+        );
+        times = result.times;
+        setLocationTimezone(result.timezone || '');
       } else {
         times = await PrayerTimesService.getPrayerTimesByCity(location.city, location.country);
+        setLocationTimezone('');
       }
-      
       setPrayerTimes(times);
     } catch (err) {
       console.error('Error fetching prayer times:', err);
@@ -92,56 +106,125 @@ function LanyardCard() {
     }
   };
 
-  const fetchHijriDate = async () => {
+  const calculateRamadanCountdown = async (hijriInfo: {
+    year: string;
+    month: { number: string };
+    day: string;
+  }) => {
     try {
-      const today = new Date();
-      const year = today.getFullYear();
-      const month = String(today.getMonth() + 1).padStart(2, '0');
-      const day = String(today.getDate()).padStart(2, '0');
-      
-      // Using Aladhan API for accurate Hijri date
-      const response = await fetch(`https://api.aladhan.com/v1/gToH?date=${day}-${month}-${year}`);
-      const data = await response.json();
-      
-      if (data.code === 200 && data.data) {
-        const hijri = data.data.hijri;
-        const hijriMonths = [
-          'Muharram', 'Safar', 'Rabi\' al-awwal', 'Rabi\' al-thani',
-          'Jumada al-awwal', 'Jumada al-thani', 'Rajab', 'Sha\'ban',
-          'Ramadan', 'Shawwal', 'Dhu al-Qi\'dah', 'Dhu al-Hijjah'
-        ];
-        
-        const monthName = hijriMonths[parseInt(hijri.month.number) - 1];
-        setHijriDate(`${hijri.day} ${monthName} ${hijri.year} AH`);
+      const hijriYearNumber = parseInt(hijriInfo.year, 10);
+      const hijriMonthNumber = parseInt(hijriInfo.month.number, 10);
+      const hijriDayNumber = parseInt(hijriInfo.day, 10);
+      const targetHijriYear = getTargetRamadanYear(hijriYearNumber, hijriMonthNumber, hijriDayNumber);
+
+      const gregorianStr = await getRamadanStartGregorian(targetHijriYear);
+      let ramadanDate: Date | null = null;
+      if (gregorianStr) {
+        const [y, m, d] = gregorianStr.split('-').map(Number);
+        ramadanDate = new Date(y, m - 1, d);
       }
-    } catch (err) {
-      console.error('Error fetching Hijri date:', err);
-      // Fallback to approximate calculation
-      const gregorianDate = new Date();
-      const hijriYear = gregorianDate.getFullYear() - 622;
-      const hijriMonth = gregorianDate.getMonth() + 1;
-      const hijriDay = gregorianDate.getDate();
-      
-      const hijriMonths = [
-        'Muharram', 'Safar', 'Rabi\' al-awwal', 'Rabi\' al-thani',
-        'Jumada al-awwal', 'Jumada al-thani', 'Rajab', 'Sha\'ban',
-        'Ramadan', 'Shawwal', 'Dhu al-Qi\'dah', 'Dhu al-Hijjah'
-      ];
-      
-      setHijriDate(`${hijriDay} ${hijriMonths[hijriMonth - 1]} ${hijriYear} AH`);
+
+      if (ramadanDate) {
+        const today = new Date();
+        ramadanDate.setHours(0, 0, 0, 0);
+        today.setHours(0, 0, 0, 0);
+
+        let diffDays = Math.ceil(
+          (ramadanDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+        );
+        if (diffDays < 0 || (hijriMonthNumber === 9 && hijriDayNumber >= 1)) {
+          diffDays = 0;
+        }
+
+        setDaysUntilRamadan(diffDays);
+        setRamadanStartDateObj(ramadanDate);
+        setRamadanStartDate(
+          ramadanDate.toLocaleDateString(undefined, {
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric',
+          })
+        );
+        return;
+      }
+
+      setDaysUntilRamadan(null);
+      setRamadanStartDate('');
+      setRamadanStartDateObj(null);
+    } catch (error) {
+      console.error('Error calculating Ramadan countdown:', error);
+      setDaysUntilRamadan(null);
+      setRamadanStartDate('');
+      setRamadanStartDateObj(null);
     }
   };
 
-  const getCurrentPrayer = () => {
-    const now = new Date();
-    const currentTimeString = now.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
+  const HIJRI_MONTHS = [
+    'Muharram', 'Safar', 'Rabi\' al-awwal', 'Rabi\' al-thani',
+    'Jumada al-awwal', 'Jumada al-thani', 'Rajab', 'Sha\'ban',
+    'Ramadan', 'Shawwal', 'Dhu al-Qi\'dah', 'Dhu al-Hijjah',
+  ];
 
-    const [currentHours, currentMinutes] = currentTimeString.split(':').map(Number);
-    const currentTimeMinutes = currentHours * 60 + currentMinutes;
+  const fetchHijriDate = async () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
+
+    const applyHijri = (h: { year: string; month: { number: string } | { number?: string }; day: string }) => {
+      const m = parseInt(h.month?.number ?? '1', 10);
+      const monthName = HIJRI_MONTHS[m - 1] || 'Unknown';
+      setHijriDate(`${h.day} ${monthName} ${h.year} AH`);
+      return calculateRamadanCountdown({ year: h.year, month: { number: String(m) }, day: h.day });
+    };
+
+    try {
+      const res = await fetch(`https://api.aladhan.com/v1/gToH?date=${day}-${month}-${year}`);
+      const data = await res.json();
+      if (data.code === 200 && data.data?.hijri) {
+        await applyHijri(data.data.hijri);
+        return;
+      }
+    } catch (_) {}
+
+    try {
+      const res = await fetch(`https://www.ummahapi.com/api/hijri-date?date=${dateStr}`);
+      const json = await res.json();
+      const hijri = json?.data?.hijri;
+      if (hijri?.year && hijri?.month != null && hijri?.day != null) {
+        await applyHijri({
+          year: String(hijri.year),
+          month: { number: String(hijri.month) },
+          day: String(hijri.day),
+        });
+        return;
+      }
+    } catch (_) {}
+
+    const gregorianDate = new Date();
+    const gy = gregorianDate.getFullYear();
+    const hijriYear = Math.round(1446 + (gy - 2025));
+    const hijriMonth = gregorianDate.getMonth() + 1;
+    const hijriDay = gregorianDate.getDate();
+    setHijriDate(`${hijriDay} ${HIJRI_MONTHS[hijriMonth - 1] || 'Unknown'} ${hijriYear} AH`);
+    await calculateRamadanCountdown({
+      year: String(hijriYear),
+      month: { number: String(hijriMonth) },
+      day: String(hijriDay),
+    });
+  };
+
+  const getCurrentPrayer = () => {
+    const tz = location?.timezone || locationTimezone;
+    const currentTimeMinutes = tz
+      ? PrayerTimesService.getNowInTimezone(tz).timeMinutes
+      : (() => {
+          const now = new Date();
+          const s = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+          const [h, m] = s.split(':').map(Number);
+          return h * 60 + m;
+        })();
 
     for (let i = 0; i < prayerTimes.length; i++) {
       const currentPrayer = prayerTimes[i];
@@ -180,15 +263,15 @@ function LanyardCard() {
   };
 
   const getNextPrayer = () => {
-    const now = new Date();
-    const currentTimeString = now.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
-
-    const [currentHours, currentMinutes] = currentTimeString.split(':').map(Number);
-    const currentTimeMinutes = currentHours * 60 + currentMinutes;
+    const tz = location?.timezone || locationTimezone;
+    const currentTimeMinutes = tz
+      ? PrayerTimesService.getNowInTimezone(tz).timeMinutes
+      : (() => {
+          const now = new Date();
+          const s = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+          const [h, m] = s.split(':').map(Number);
+          return h * 60 + m;
+        })();
 
     for (let i = 0; i < prayerTimes.length; i++) {
       const prayer = prayerTimes[i];
@@ -211,7 +294,16 @@ function LanyardCard() {
     return prayerTimes[0];
   };
 
+  const tz = location?.timezone || locationTimezone;
   const formatTime = (date: Date) => {
+    if (tz) {
+      return date.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+        timeZone: tz,
+      });
+    }
     return date.toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
@@ -220,6 +312,15 @@ function LanyardCard() {
   };
 
   const formatDate = (date: Date) => {
+    if (tz) {
+      return date.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        timeZone: tz,
+      });
+    }
     return date.toLocaleDateString('en-US', {
       weekday: 'long',
       year: 'numeric',
@@ -228,6 +329,84 @@ function LanyardCard() {
     });
   };
 
+  const getRamadanDay = (): number | null => {
+    if (!ramadanStartDateObj || daysUntilRamadan !== 0) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const start = new Date(ramadanStartDateObj);
+    start.setHours(0, 0, 0, 0);
+    const diffMs = today.getTime() - start.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays < 0 || diffDays >= 30) return null;
+    return diffDays + 1;
+  };
+
+  const parseTimeToMinutes = (timeStr: string): number => {
+    const m = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+    if (!m) return 0;
+    let h = parseInt(m[1], 10);
+    const min = parseInt(m[2], 10);
+    if (m[3].toUpperCase() === 'PM' && h !== 12) h += 12;
+    if (m[3].toUpperCase() === 'AM' && h === 12) h = 0;
+    return h * 60 + min;
+  };
+
+  const getUntilIftarString = (): string | null => {
+    const maghrib = prayerTimes.find((p) => p.name === 'Maghrib');
+    const fajr = prayerTimes.find((p) => p.name === 'Fajr');
+    if (!maghrib || !fajr) return null;
+    const tz = location?.timezone || locationTimezone;
+    const nowMinutes = tz
+      ? PrayerTimesService.getNowInTimezone(tz).timeMinutes
+      : currentTime.getHours() * 60 + currentTime.getMinutes();
+    const maghribMinutes = parseTimeToMinutes(maghrib.time);
+    const fajrMinutes = parseTimeToMinutes(fajr.time);
+    if (nowMinutes < maghribMinutes) {
+      const diff = maghribMinutes - nowMinutes;
+      const h = Math.floor(diff / 60);
+      const m = diff % 60;
+      return `⏳ ${h}h ${m}m until Iftar`;
+    }
+    const minutesUntilFajr = (24 * 60 - nowMinutes) + fajrMinutes;
+    const h = Math.floor(minutesUntilFajr / 60);
+    const m = minutesUntilFajr % 60;
+    return `⏳ ${h}h ${m}m until Suhoor`;
+  };
+
+  /** Live countdown in hours, minutes, seconds (updates every second with currentTime). */
+  const getCountdownToIftarOrSuhoor = (): { label: string; hours: number; minutes: number; seconds: number } | null => {
+    const maghrib = prayerTimes.find((p) => p.name === 'Maghrib');
+    const fajr = prayerTimes.find((p) => p.name === 'Fajr');
+    if (!maghrib || !fajr) return null;
+    const now = currentTime.getTime();
+    const y = currentTime.getFullYear();
+    const mo = currentTime.getMonth();
+    const d = currentTime.getDate();
+    const maghribMinutes = parseTimeToMinutes(maghrib.time);
+    const fajrMinutes = parseTimeToMinutes(fajr.time);
+    const maghribHour = Math.floor(maghribMinutes / 60);
+    const maghribMin = maghribMinutes % 60;
+    const fajrHour = Math.floor(fajrMinutes / 60);
+    const fajrMin = fajrMinutes % 60;
+    const targetMaghrib = new Date(y, mo, d, maghribHour, maghribMin, 0).getTime();
+    let targetMs: number;
+    let label: string;
+    if (now < targetMaghrib) {
+      targetMs = targetMaghrib;
+      label = 'until Iftar';
+    } else {
+      const targetFajr = new Date(y, mo, d + 1, fajrHour, fajrMin, 0).getTime();
+      targetMs = targetFajr;
+      label = 'until Suhoor';
+    }
+    let diffMs = targetMs - now;
+    if (diffMs <= 0) return null;
+    const totalSeconds = Math.floor(diffMs / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return { label, hours, minutes, seconds };
+  };
 
   const currentPrayer = getCurrentPrayer();
   const nextPrayer = getNextPrayer();
@@ -298,6 +477,87 @@ function LanyardCard() {
               <Text style={styles.lanyardDateValue}>{hijriDate || 'Loading...'}</Text>
             </View>
           </View>
+
+          {daysUntilRamadan !== null && (
+            <LinearGradient
+              colors={['rgba(35, 20, 65, 0.55)', 'rgba(25, 12, 50, 0.65)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.ramadanCountdown}
+            >
+              {(FORCE_RAMADAN_PREVIEW || (daysUntilRamadan === 0 && getRamadanDay() !== null)) ? (
+                <View style={styles.ramadanInProgress}>
+                  <Text style={styles.ramadanDayHeader}>
+                    Ramadan Day {FORCE_RAMADAN_PREVIEW ? 7 : getRamadanDay()}
+                  </Text>
+                  <View style={styles.ramadanTimesBlock}>
+                    <View style={styles.ramadanTimeRow}>
+                      <Text style={styles.ramadanTimeLabel}>Iftar</Text>
+                      <Text style={styles.ramadanTimeValue}>
+                        {prayerTimes.find((p) => p.name === 'Maghrib')?.time ?? '--'}
+                      </Text>
+                    </View>
+                    <View style={styles.ramadanTimeRow}>
+                      <Text style={styles.ramadanTimeLabel}>Suhoor ends</Text>
+                      <Text style={styles.ramadanTimeValue}>
+                        {prayerTimes.find((p) => p.name === 'Fajr')?.time ?? '--'}
+                      </Text>
+                    </View>
+                  </View>
+                  {(() => {
+                    const countdown = getCountdownToIftarOrSuhoor();
+                    const fallback = getUntilIftarString();
+                    if (countdown) {
+                      const { label, hours, minutes, seconds } = countdown;
+                      const pad = (n: number) => String(n).padStart(2, '0');
+                      return (
+                        <View style={styles.ramadanCountdownPill}>
+                          <Text style={styles.ramadanCountdownPillText}>
+                            ⏳ {hours}h {pad(minutes)}m {pad(seconds)}s {label}
+                          </Text>
+                        </View>
+                      );
+                    }
+                    if (fallback) {
+                      return (
+                        <View style={styles.ramadanCountdownPill}>
+                          <Text style={styles.ramadanCountdownPillText}>{fallback}</Text>
+                        </View>
+                      );
+                    }
+                    return null;
+                  })()}
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.ramadanCountdownLabel}>
+                    {daysUntilRamadan === 0 ? 'Ramadan Mubarak!' : 'Days Until Ramadan'}
+                  </Text>
+                  {daysUntilRamadan > 0 ? (
+                    <View style={styles.ramadanCountdownValueContainer}>
+                      <Text style={styles.ramadanCountdownValue}>{daysUntilRamadan}</Text>
+                      <Text style={styles.ramadanCountdownUnits}>days</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.ramadanCountdownSubtitle}>Ramadan has begun</Text>
+                  )}
+                  {ramadanStartDate ? (
+                    <Text style={styles.ramadanStartDate}>
+                      {daysUntilRamadan === 0 ? `Started ${ramadanStartDate}` : `Starts ${ramadanStartDate}`}
+                    </Text>
+                  ) : null}
+                </>
+              )}
+              <TouchableOpacity
+                style={styles.ramadanTrackerLink}
+                onPress={() => router.push('/ramadan-tracker')}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.ramadanTrackerLinkText, { color: '#059669' }]}>Ramadan Tracker</Text>
+                <IconSymbol name="chevron.right" size={18} color="#059669" />
+              </TouchableOpacity>
+            </LinearGradient>
+          )}
         </View>
         </LinearGradient>
       </View>
@@ -456,9 +716,15 @@ function AnimatedCircularCard({ action, index, scrollY }: { action: QuickAction;
         >
           {action.title === 'Full Prayer Times' ? (
             <View style={styles.prayerTimesCardContainer}>
+              <LinearGradient
+                colors={['#4CAF50', '#2E7D32', '#1B5E20']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
               <Image 
                 source={require('@/assets/images/prayer-times-icon.png')} 
-                style={styles.prayerTimesCardBackground}
+                style={[styles.prayerTimesCardBackground, { opacity: 0.75 }]}
                 resizeMode="cover"
               />
             </View>
@@ -531,7 +797,7 @@ function HomeScreenContent({ scrollY }: { scrollY: any }) {
   const quickActions: QuickAction[] = [
     { title: 'Full Prayer Times', icon: 'clock.fill', route: '/prayer-times', color: '#4CAF50' },
     { title: 'Qibla Direction', icon: 'location.fill', route: '/qibla', color: '#2196F3' },
-    { title: 'Quran', icon: 'book.fill', route: '/quran', color: '#9C27B0' },
+    { title: 'Quran', icon: 'book.fill', route: '/(drawer)/(stack)/quran-landing', color: '#9C27B0' },
     { title: 'Tasbih Counter', icon: 'circle.grid.3x3.fill', route: '/tasbih', color: '#FF9800' },
     { title: 'Duas', icon: 'hands.sparkles.fill', route: '/duas', color: '#E91E63' },
     { title: 'Hadith', icon: 'quote.bubble.fill', route: '/hadith', color: '#607D8B' },
@@ -561,7 +827,6 @@ function HomeScreenContent({ scrollY }: { scrollY: any }) {
     </>
   );
 }
-
 export default function HomeScreen() {
   const { theme, isDark } = useTheme();
   const colors = Colors[((theme as 'light' | 'dark') ?? 'light' as 'light' | 'dark') ?? 'light'];
@@ -767,7 +1032,7 @@ export default function HomeScreen() {
         <View style={[styles.container, { backgroundColor: '#101828' }]}>
           <Reanimated.ScrollView 
             style={{ flex: 1 }}
-            contentContainerStyle={{ paddingBottom: 30 }}
+            contentContainerStyle={{ paddingBottom: 16, flexGrow: 1 }}
             showsVerticalScrollIndicator={false}
             bounces={true}
             alwaysBounceVertical={true}
@@ -782,7 +1047,7 @@ export default function HomeScreen() {
         >
           <View style={styles.menuButtonContainer}>
             <View style={[styles.menuIconContainer, { backgroundColor: '#FFFFFF' }]}>
-              <IconSymbol name="line.3.horizontal" size={IS_IPAD ? 32 : 28} color="#2C3E50" />
+              <IconSymbol name="list.bullet" size={IS_IPAD ? 32 : 28} color="#2C3E50" />
             </View>
             <Text style={styles.menuButtonText}>More</Text>
           </View>
@@ -836,9 +1101,9 @@ const styles = StyleSheet.create({
     alignSelf: IS_IPAD ? 'center' : 'auto',
   },
   sectionTitle: {
-    fontSize: IS_IPAD ? 28 : 20,
+    fontSize: IS_IPAD ? 28 : IS_LARGE_PHONE ? 22 : 20,
     fontWeight: 'bold',
-    marginBottom: IS_IPAD ? 20 : 10,
+    marginBottom: IS_IPAD ? 20 : IS_LARGE_PHONE ? 12 : 10,
   },
   grid: {
     flexDirection: 'row',
@@ -871,7 +1136,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   cardTitle: {
-    fontSize: IS_IPAD ? 20 : IS_SMALL_PHONE ? 14 : 16,
+    fontSize: IS_IPAD ? 20 : IS_SMALL_PHONE ? 14 : IS_LARGE_PHONE ? 18 : 16,
     fontWeight: 'bold',
     color: '#2C3E50',
     textAlign: 'center',
@@ -1088,17 +1353,16 @@ const styles = StyleSheet.create({
   },
   lanyardCardWrapper: {
     marginHorizontal: IS_IPAD ? 40 : 10,
-    marginTop: 20,
-    marginBottom: 10,
+    marginTop: 16,
+    marginBottom: 8,
     maxWidth: IS_IPAD ? 900 : undefined,
     alignSelf: IS_IPAD ? 'center' : 'auto',
     width: IS_IPAD ? '85%' : undefined,
   },
   lanyardCard: {
-    borderRadius: 30,
+    borderRadius: 36,
     borderWidth: 2,
     borderColor: 'rgba(255, 255, 255, 0.2)',
-    // Black shadow (bottom-right)
     shadowColor: '#000000',
     shadowOffset: {
       width: 30,
@@ -1109,27 +1373,27 @@ const styles = StyleSheet.create({
     elevation: 20,
   },
   lanyardGradient: {
-    borderRadius: 30,
-    padding: IS_IPAD ? 40 : 24,
+    borderRadius: 36,
+    padding: IS_IPAD ? 28 : 18,
   },
   lanyardContent: {
     alignItems: 'center',
   },
   lanyardHeader: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 12,
   },
   lanyardTitle: {
-    fontSize: IS_IPAD ? 36 : 28,
+    fontSize: IS_IPAD ? 30 : 24,
     fontWeight: '900',
     color: '#FFFFFF',
-    marginBottom: IS_IPAD ? 8 : 5,
+    marginBottom: IS_IPAD ? 4 : 2,
     textShadowColor: '#000000',
     textShadowOffset: { width: 1, height: 1 },
     textShadowRadius: 3,
   },
   lanyardLocation: {
-    fontSize: IS_IPAD ? 24 : 18,
+    fontSize: IS_IPAD ? 20 : 16,
     color: '#FFFFFF',
     fontWeight: '700',
     opacity: 0.9,
@@ -1139,18 +1403,18 @@ const styles = StyleSheet.create({
   },
   lanyardTimes: {
     width: '100%',
-    marginBottom: 20,
+    marginBottom: 12,
   },
   lanyardTimeRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 5,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.3)',
   },
   lanyardTimeLabel: {
-    fontSize: IS_IPAD ? 24 : 18,
+    fontSize: IS_IPAD ? 20 : 16,
     color: '#FFFFFF',
     fontWeight: '800',
     textShadowColor: '#000000',
@@ -1158,7 +1422,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
   lanyardTimeValue: {
-    fontSize: IS_IPAD ? 24 : 18,
+    fontSize: IS_IPAD ? 20 : 16,
     color: '#FFFFFF',
     fontWeight: '900',
     textShadowColor: '#000000',
@@ -1172,16 +1436,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: 4,
   },
   lanyardDateLabel: {
-    fontSize: IS_IPAD ? 22 : 16,
+    fontSize: IS_IPAD ? 18 : 14,
     color: '#FFFFFF',
     fontWeight: '800',
     opacity: 0.9,
   },
   lanyardDateValue: {
-    fontSize: IS_IPAD ? 22 : 16,
+    fontSize: IS_IPAD ? 18 : 14,
     color: '#FFFFFF',
     fontWeight: '700',
     textAlign: 'right',
@@ -1189,11 +1453,121 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   lanyardLoadingText: {
-    fontSize: IS_IPAD ? 24 : 20,
+    fontSize: IS_IPAD ? 20 : 18,
     color: '#FFFFFF',
     fontWeight: '800',
     textAlign: 'center',
-    padding: 20,
+    padding: 16,
+  },
+  ramadanCountdown: {
+    width: '100%',
+    marginTop: 14,
+    paddingVertical: IS_IPAD ? 14 : 10,
+    paddingHorizontal: IS_IPAD ? 20 : 14,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  ramadanCountdownLabel: {
+    fontSize: IS_IPAD ? 20 : 17,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+  ramadanInProgress: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  ramadanDayHeader: {
+    fontSize: IS_IPAD ? 22 : 19,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginBottom: 12,
+  },
+  ramadanTimesBlock: {
+    width: '100%',
+    marginBottom: 10,
+  },
+  ramadanTimeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  ramadanTimeLabel: {
+    fontSize: IS_IPAD ? 18 : 16,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+  ramadanTimeValue: {
+    fontSize: IS_IPAD ? 18 : 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  ramadanCountdownPill: {
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 28,
+  },
+  ramadanCountdownPillText: {
+    fontSize: IS_IPAD ? 17 : 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  ramadanCountdownValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    marginBottom: 4,
+  },
+  ramadanCountdownValue: {
+    fontSize: IS_IPAD ? 52 : 42,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    marginRight: 6,
+    textShadowColor: 'rgba(0, 0, 0, 0.4)',
+    textShadowOffset: { width: 2, height: 4 },
+    textShadowRadius: 4,
+  },
+  ramadanCountdownUnits: {
+    fontSize: IS_IPAD ? 22 : 18,
+    fontWeight: '700',
+    color: 'rgba(255, 255, 255, 0.85)',
+    marginBottom: IS_IPAD ? 6 : 4,
+  },
+  ramadanCountdownSubtitle: {
+    fontSize: IS_IPAD ? 20 : 18,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  ramadanStartDate: {
+    fontSize: IS_IPAD ? 18 : 16,
+    fontWeight: '600',
+    color: 'rgba(255, 255, 255, 0.85)',
+  },
+  ramadanTrackerLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.2)',
+    gap: 4,
+  },
+  ramadanTrackerLinkText: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontWeight: '500',
   },
   // Popup styles
   popupOverlay: {
@@ -1300,7 +1674,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   menuButton: {
-    paddingTop: 60,
+    paddingTop: 72,
     paddingLeft: 20,
     paddingBottom: 10,
   },
@@ -1333,11 +1707,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 10,
-    marginTop: IS_IPAD ? -120 : IS_SMALL_PHONE ? -60 : IS_LARGE_PHONE ? -140 : -180,
+    marginTop: IS_IPAD ? -140 : IS_SMALL_PHONE ? -80 : IS_LARGE_PHONE ? -160 : -220,
     zIndex: 10,
   },
   bismillahText: {
-    fontSize: IS_IPAD ? 56 : IS_SMALL_PHONE ? 30 : 42,
+    fontSize: IS_IPAD ? 56 : IS_SMALL_PHONE ? 30 : IS_LARGE_PHONE ? 46 : 42,
     color: '#FFFFFF',
     fontFamily: 'Amiri-Bold',
     fontWeight: '900',
@@ -1349,7 +1723,7 @@ const styles = StyleSheet.create({
     opacity: 0.9,
   },
   bismillahTranslation: {
-    fontSize: IS_IPAD ? 26 : IS_SMALL_PHONE ? 15 : 19,
+    fontSize: IS_IPAD ? 26 : IS_SMALL_PHONE ? 15 : IS_LARGE_PHONE ? 21 : 19,
     color: '#FFFFFF',
     fontFamily: 'CormorantGaramond-Italic',
     fontWeight: '600',
@@ -1361,4 +1735,5 @@ const styles = StyleSheet.create({
     textShadowRadius: 3,
   },
 });
+
 

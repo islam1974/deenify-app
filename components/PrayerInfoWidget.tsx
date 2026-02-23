@@ -20,6 +20,7 @@ export default function PrayerInfoWidget() {
   const { location, locationEnabled } = useLocation();
   const { settings: prayerSettings } = usePrayerSettings();
   const [prayerTimes, setPrayerTimes] = useState<PrayerTime[]>([]);
+  const [locationTimezone, setLocationTimezone] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,25 +56,26 @@ export default function PrayerInfoWidget() {
 
     try {
       let times: PrayerTime[];
-      
       if (location.latitude !== 0 && location.longitude !== 0) {
-        times = await PrayerTimesService.getPrayerTimes(
-          location.latitude, 
+        const result = await PrayerTimesService.getPrayerTimesWithTimezone(
+          location.latitude,
           location.longitude,
           undefined,
           prayerSettings.calculationMethod,
           prayerSettings.madhab
         );
+        times = result.times;
+        setLocationTimezone(result.timezone || '');
       } else {
         times = await PrayerTimesService.getPrayerTimesByCity(
-          location.city, 
+          location.city,
           location.country,
           undefined,
           prayerSettings.calculationMethod,
           prayerSettings.madhab
         );
+        setLocationTimezone('');
       }
-      
       setPrayerTimes(times);
     } catch (err) {
       setError('Failed to load prayer times');
@@ -84,15 +86,15 @@ export default function PrayerInfoWidget() {
   };
 
   const getCurrentPrayer = (): PrayerTime | null => {
-    const now = new Date();
-    const currentTimeString = now.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
-
-    const [currentHours, currentMinutes] = currentTimeString.split(':').map(Number);
-    const currentTimeMinutes = currentHours * 60 + currentMinutes;
+    const tz = location?.timezone || locationTimezone;
+    const currentTimeMinutes = tz
+      ? PrayerTimesService.getNowInTimezone(tz).timeMinutes
+      : (() => {
+          const now = new Date();
+          const s = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+          const [h, m] = s.split(':').map(Number);
+          return h * 60 + m;
+        })();
 
     // Check if we're currently in a prayer time window
     for (let i = 0; i < prayerTimes.length; i++) {
@@ -136,15 +138,15 @@ export default function PrayerInfoWidget() {
   };
 
   const getNextPrayer = (): PrayerTime | null => {
-    const now = new Date();
-    const currentTimeString = now.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
-
-    const [currentHours, currentMinutes] = currentTimeString.split(':').map(Number);
-    const currentTimeMinutes = currentHours * 60 + currentMinutes;
+    const tz = location?.timezone || locationTimezone;
+    const currentTimeMinutes = tz
+      ? PrayerTimesService.getNowInTimezone(tz).timeMinutes
+      : (() => {
+          const now = new Date();
+          const s = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+          const [h, m] = s.split(':').map(Number);
+          return h * 60 + m;
+        })();
 
     // Find the next prayer that hasn't passed yet
     for (let i = 0; i < prayerTimes.length; i++) {
@@ -175,37 +177,34 @@ export default function PrayerInfoWidget() {
     const nextPrayer = getNextPrayer();
     if (!nextPrayer) return null;
 
-    const now = new Date();
     const timeWithoutPeriod = nextPrayer.time.replace(' AM', '').replace(' PM', '');
     const [prayerHours, prayerMinutes] = timeWithoutPeriod.split(':').map(Number);
-    
-    // Convert to 24-hour format for calculation
-    let prayerTimeHours = prayerHours;
+    let prayerTimeMinutes = prayerHours * 60 + prayerMinutes;
     if (nextPrayer.time.includes('AM') && prayerHours === 12) {
-      prayerTimeHours = 0; // 12:XX AM = 00:XX
+      prayerTimeMinutes = prayerMinutes;
     } else if (nextPrayer.time.includes('PM') && prayerHours !== 12) {
-      prayerTimeHours = prayerHours + 12; // Convert to 24-hour
-    }
-    
-    const prayerTime = new Date();
-    prayerTime.setHours(prayerTimeHours, prayerMinutes, 0, 0);
-    
-    // If prayer time is tomorrow (past midnight)
-    if (prayerTime <= now) {
-      prayerTime.setDate(prayerTime.getDate() + 1);
+      prayerTimeMinutes = (prayerHours + 12) * 60 + prayerMinutes;
     }
 
-    const diffMs = prayerTime.getTime() - now.getTime();
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    const tz = location?.timezone || locationTimezone;
+    const nowMinutes = tz
+      ? PrayerTimesService.getNowInTimezone(tz).timeMinutes
+      : (() => {
+          const now = new Date();
+          const s = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+          const [h, m] = s.split(':').map(Number);
+          return h * 60 + m;
+        })();
 
+    let diffMinutes = prayerTimeMinutes - nowMinutes;
+    if (diffMinutes <= 0) diffMinutes += 24 * 60;
+    const diffHours = Math.floor(diffMinutes / 60);
+    const mins = diffMinutes % 60;
     if (diffHours > 0) {
-      return `${diffHours}h ${diffMinutes}m`;
-    } else {
-      return `${diffMinutes}m`;
+      return `${diffHours}h ${mins}m`;
     }
+    return `${mins}m`;
   };
-
 
   if (isLoading) {
     return (

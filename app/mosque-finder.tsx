@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Linking, Platform, Alert, ActivityIndicator, RefreshControl } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import MapView, { Marker, Circle, PROVIDER_GOOGLE } from 'react-native-maps';
-import * as Location from 'expo-location';
-import { Colors, Fonts } from '@/constants/theme';
-import { useTheme } from '@/contexts/ThemeContext';
 import { IconSymbol } from '@/components/ui/icon-symbol';
+import { Colors, Fonts } from '@/constants/theme';
+import { useLocation } from '@/contexts/LocationContext';
+import { useTheme } from '@/contexts/ThemeContext';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Location from 'expo-location';
+import { useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Dimensions, Linking, Platform, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import MapView, { Circle, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Mosque {
   id: string;
@@ -20,7 +21,17 @@ interface Mosque {
   website?: string;
 }
 
-const RADIUS_OPTIONS = [1, 2, 5, 10, 15, 20]; // miles
+const RADIUS_MILES = 5;
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+const MOSQUE_CACHE_TTL_MS = 10 * 60 * 1000;
+const mosqueCache = new Map<string, { mosques: Mosque[]; timestamp: number }>();
+
+function getCacheKey(lat: number, lon: number): string {
+  return `${lat.toFixed(3)}_${lon.toFixed(3)}`;
+}
+const IS_IPAD = false; // Set true when deploying on iPad
+const IS_SMALL_PHONE = SCREEN_WIDTH < 380;
 
 // Dark map style for better visibility in dark mode
 const darkMapStyle = [
@@ -48,6 +59,7 @@ export default function MosqueFinderScreen() {
   const colors = Colors[((theme as 'light' | 'dark') ?? 'light' as 'light' | 'dark') ?? 'light'];
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { location: contextLocation, locationEnabled, requestLocation, error: contextError } = useLocation();
   const mapRef = useRef<MapView>(null);
   const scrollRef = useRef<ScrollView>(null);
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
@@ -55,167 +67,292 @@ export default function MosqueFinderScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [selectedRadius, setSelectedRadius] = useState(5); // default 5 miles
   const [searchCount, setSearchCount] = useState(0);
   const [selectedMosque, setSelectedMosque] = useState<Mosque | null>(null);
 
+  const isInitializedRef = useRef(false);
+  const lastSearchedRef = useRef<{ lat: number; lon: number } | null>(null);
+  const isSearchingRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Clear mosque cache on mount so fresh queries use updated logic (e.g. new Overpass query, radius filter)
   useEffect(() => {
-    initializeLocation();
+    mosqueCache.clear();
   }, []);
 
+  // Initialize location from context or request fresh location (only once)
   useEffect(() => {
-    if (location && !loading) {
-      searchNearbyMosques(location.coords.latitude, location.coords.longitude, selectedRadius);
+    if (!isInitializedRef.current) {
+      initializeLocation();
+      isInitializedRef.current = true;
     }
-  }, [selectedRadius]);
+  }, []);
+
+  // Update location when context location changes (only if location actually changed)
+  useEffect(() => {
+    if (contextLocation && contextLocation.latitude !== 0 && contextLocation.longitude !== 0 && isInitializedRef.current) {
+      const locationObj: Location.LocationObject = {
+        coords: {
+          latitude: contextLocation.latitude,
+          longitude: contextLocation.longitude,
+          altitude: null,
+          accuracy: null,
+          altitudeAccuracy: null,
+          heading: null,
+          speed: null,
+        },
+        timestamp: Date.now(),
+      };
+      const locationChanged = !lastSearchedRef.current ||
+        Math.abs(lastSearchedRef.current.lat - contextLocation.latitude) > 0.0001 ||
+        Math.abs(lastSearchedRef.current.lon - contextLocation.longitude) > 0.0001;
+      if (locationChanged) {
+        setErrorMsg(null);
+        setLocation(locationObj);
+        if (!isSearchingRef.current) {
+          searchNearbyMosques(contextLocation.latitude, contextLocation.longitude);
+        }
+      }
+    }
+  }, [contextLocation?.latitude, contextLocation?.longitude]);
+
+  // If we're waiting for context and context reports an error, show it
+  useEffect(() => {
+    if (isInitializedRef.current && !location && contextError && contextLocation == null) {
+      setErrorMsg(contextError);
+    }
+  }, [contextError, contextLocation, location]);
 
   const initializeLocation = async () => {
+    setErrorMsg(null); // Clear previous error on retry
     try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
+      const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         setErrorMsg('Permission to access location was denied');
         setLoading(false);
         return;
       }
 
-      let currentLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
-      });
-      setLocation(currentLocation);
-      await searchNearbyMosques(currentLocation.coords.latitude, currentLocation.coords.longitude, selectedRadius);
-    } catch (error) {
-      setErrorMsg('Error getting location. Please check your location services.');
-      console.error(error);
+      const servicesEnabled = await Location.hasServicesEnabledAsync();
+      if (!servicesEnabled) {
+        setErrorMsg('Location services are disabled. Please enable them in Settings.');
+        setLoading(false);
+        return;
+      }
+
+      // Prefer device location; accept cached fix (helps when GPS is weak indoors).
+      try {
+        const currentLocation = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+          ...({ maximumAge: 60000 } as any),
+        });
+        const loc = currentLocation.coords;
+        if (loc.latitude != null && loc.longitude != null && Math.abs(loc.latitude) <= 90 && Math.abs(loc.longitude) <= 180) {
+          setErrorMsg(null);
+          setLocation(currentLocation);
+          if (!isSearchingRef.current) {
+            await searchNearbyMosques(loc.latitude, loc.longitude);
+          }
+          return;
+        }
+      } catch (gpsError: any) {
+        console.warn('📍 getCurrentPositionAsync failed, trying context fallback:', gpsError?.message);
+      }
+
+      // Fallback: use context location if valid (e.g. simulator override, or saved from home)
+      if (contextLocation && contextLocation.latitude !== 0 && contextLocation.longitude !== 0) {
+        const locationObj: Location.LocationObject = {
+          coords: {
+            latitude: contextLocation.latitude,
+            longitude: contextLocation.longitude,
+            altitude: null,
+            accuracy: null,
+            altitudeAccuracy: null,
+            heading: null,
+            speed: null,
+          },
+          timestamp: Date.now(),
+        };
+        setLocation(locationObj);
+        if (!isSearchingRef.current) {
+          await searchNearbyMosques(contextLocation.latitude, contextLocation.longitude);
+        }
+        return;
+      }
+
+      // Context not ready yet: trigger context to fetch (LocationContext will update state when done)
+      // Our useEffect on contextLocation will pick up the result when it arrives
+      if (locationEnabled) {
+        await requestLocation();
+        return; // Don't set error - wait for context update; useEffect will set location when ready
+      }
+
+      setErrorMsg('Could not get your location. Please ensure location services are on and try again.');
+    } catch (error: any) {
+      const msg = error?.message?.toLowerCase() ?? '';
+      if (msg.includes('timeout')) {
+        setErrorMsg('Location timed out. GPS can be weak indoors—try near a window or outdoors, then tap Try Again.');
+      } else if (msg.includes('permission') || msg.includes('denied')) {
+        setErrorMsg('Permission to access location was denied');
+      } else {
+        setErrorMsg('Error getting location. Please check your location services and try again.');
+      }
+      console.error('Mosque finder location error:', error);
+    } finally {
       setLoading(false);
     }
   };
 
-  const searchNearbyMosques = async (latitude: number, longitude: number, radiusMiles: number) => {
+  const searchNearbyMosques = async (latitude: number, longitude: number, skipCache = false) => {
+    let lat = Number(latitude);
+    let lon = Number(longitude);
+    const valid =
+      Number.isFinite(lat) && Number.isFinite(lon) &&
+      Math.abs(lat) <= 90 && Math.abs(lon) <= 180 &&
+      (lat !== 0 || lon !== 0);
+    if (!valid) {
+      lat = 51.5074;
+      lon = -0.1278;
+      console.warn('⚠️ Invalid location, using London as fallback');
+    }
+
+    const searchKey = getCacheKey(lat, lon);
+    const lastKey = lastSearchedRef.current ? getCacheKey(lastSearchedRef.current.lat, lastSearchedRef.current.lon) : null;
+    if (isSearchingRef.current) return;
+    if (!skipCache && searchKey === lastKey) return;
+
+    const cached = !skipCache && mosqueCache.get(searchKey);
+    if (cached && Date.now() - cached.timestamp < MOSQUE_CACHE_TTL_MS) {
+      setMosques(cached.mosques);
+      setSearchCount(cached.mosques.length);
+      setLoading(false);
+      lastSearchedRef.current = { lat, lon };
+      return;
+    }
+
     try {
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+      abortControllerRef.current = new AbortController();
+      const signal = abortControllerRef.current.signal;
+      isSearchingRef.current = true;
       setLoading(true);
       setErrorMsg(null);
-      
-      // Convert miles to meters for API
-      const radiusMeters = radiusMiles * 1609.34;
-      
-      // Using Overpass API (OpenStreetMap) - free, no API key required
-      // Try multiple Overpass API servers for redundancy
-      const overpassUrls = [
+
+      const radiusMeters = Math.ceil(RADIUS_MILES * 1609.34);
+      const query = `[out:json][timeout:15];(node["amenity"="place_of_worship"]["religion"~"muslim|islam",i](around:${radiusMeters},${lat},${lon});way["amenity"="place_of_worship"]["religion"~"muslim|islam",i](around:${radiusMeters},${lat},${lon});relation["amenity"="place_of_worship"]["religion"~"muslim|islam",i](around:${radiusMeters},${lat},${lon});node["amenity"="mosque"](around:${radiusMeters},${lat},${lon});way["amenity"="mosque"](around:${radiusMeters},${lat},${lon});node["building"="mosque"](around:${radiusMeters},${lat},${lon});way["building"="mosque"](around:${radiusMeters},${lat},${lon}););out center 200;`;
+
+      const OVERPASS_URLS = [
         'https://overpass-api.de/api/interpreter',
         'https://overpass.kumi.systems/api/interpreter',
-        'https://overpass.openstreetmap.ru/api/interpreter'
       ];
-      
-      const query = `
-        [out:json][timeout:60];
-        (
-          node["amenity"="place_of_worship"]["religion"="muslim"](around:${radiusMeters},${latitude},${longitude});
-          way["amenity"="place_of_worship"]["religion"="muslim"](around:${radiusMeters},${latitude},${longitude});
-          relation["amenity"="place_of_worship"]["religion"="muslim"](around:${radiusMeters},${latitude},${longitude});
-        );
-        out center;
-      `;
+      const FETCH_TIMEOUT_MS = 25000;
 
-      let data = null;
-      let lastError = null;
+      let data: any;
+      let lastErr: Error | null = null;
 
-      // Try each server until one works
-      for (const overpassUrl of overpassUrls) {
+      for (const url of OVERPASS_URLS) {
+        if (signal.aborted) break;
         try {
-          console.log(`🔍 Trying Overpass API: ${overpassUrl}`);
-          
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-
-          const response = await fetch(overpassUrl, {
+          const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), FETCH_TIMEOUT_MS);
+          const res = await fetch(url, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/x-www-form-urlencoded',
-            },
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: 'data=' + encodeURIComponent(query),
-            signal: controller.signal,
+            signal,
           });
-
           clearTimeout(timeoutId);
-
-          console.log(`📡 Response status: ${response.status}`);
-
-          if (!response.ok) {
-            throw new Error(`Server responded with status: ${response.status}`);
+          if (!res.ok) {
+            lastErr = new Error(res.status === 504 ? 'Server timed out. Tap Retry or pull to refresh.' : `HTTP ${res.status}`);
+            continue;
           }
-
-          data = await response.json();
-          console.log('✅ Successfully fetched mosques:', data.elements?.length || 0);
-          break; // Success, exit loop
-        } catch (err: any) {
-          console.error(`❌ Failed with ${overpassUrl}:`, err.message);
-          lastError = err;
-          // Continue to next server
-          await new Promise(resolve => setTimeout(resolve, 500)); // Small delay between attempts
+          data = await res.json();
+          if (data.error) {
+            lastErr = new Error(data.error || 'Overpass error');
+            continue;
+          }
+          lastErr = null;
+          break;
+        } catch (e: any) {
+          lastErr = e?.name === 'AbortError' ? e : (e || lastErr);
+          if (e?.name === 'AbortError') break;
         }
       }
 
-      if (!data) {
-        const errorDetails = lastError?.message || 'All API servers failed';
-        console.error('❌ Final error:', errorDetails);
-        throw new Error(`Unable to fetch mosques. ${errorDetails}. Please check your internet connection.`);
-      }
-
-      if (!data.elements || data.elements.length === 0) {
+      if (lastErr) throw lastErr;
+      if (!data?.elements?.length) {
         setMosques([]);
         setSearchCount(0);
         setLoading(false);
         setRefreshing(false);
+        setErrorMsg('No mosques found within 5 miles. Pull to refresh or tap Retry.');
+        lastSearchedRef.current = { lat, lon };
         return;
       }
-      
-      // Process the results
-      const processedMosques: Mosque[] = data.elements
-        .map((element: any) => {
-          const lat = element.lat || element.center?.lat;
-          const lon = element.lon || element.center?.lon;
-          
-          if (!lat || !lon) return null;
 
-          const distance = calculateDistance(latitude, longitude, lat, lon);
-          
-          return {
-            id: element.id.toString(),
-            name: element.tags?.name || element.tags?.['name:en'] || element.tags?.['name:ar'] || 'Unnamed Mosque',
-            address: formatAddress(element.tags),
-            latitude: lat,
-            longitude: lon,
-            distance: distance,
-            phone: element.tags?.phone || element.tags?.['contact:phone'],
-            website: element.tags?.website || element.tags?.['contact:website'],
-          };
-        })
-        .filter((mosque: Mosque | null) => mosque !== null)
-        .sort((a: Mosque, b: Mosque) => a.distance - b.distance);
+      const isLikelyMosque = (tags: any): boolean => {
+        if (!tags) return false;
+        const amenity = String(tags.amenity ?? '').toLowerCase();
+        const religion = String(tags.religion ?? '').toLowerCase();
+        const building = String(tags.building ?? '').toLowerCase();
+        const name = String(tags.name ?? tags['name:en'] ?? tags['name:ar'] ?? '').toLowerCase();
+        if (amenity === 'mosque' || building === 'mosque') return true;
+        if (religion.includes('muslim') || religion.includes('islam')) return true;
+        if (name.includes('mosque') || name.includes('masjid') || name.includes('islamic')) return true;
+        return false;
+      };
 
-      setMosques(processedMosques);
-      setSearchCount(processedMosques.length);
+      const list: Mosque[] = [];
+      for (const el of data.elements) {
+        const elat = el.lat ?? el.center?.lat;
+        const elon = el.lon ?? el.center?.lon;
+        if (elat == null || elon == null || !Number.isFinite(elat) || !Number.isFinite(elon)) continue;
+        const tags = el?.tags ?? {};
+        if (!isLikelyMosque(tags)) continue;
+        const distance = calculateDistance(lat, lon, elat, elon);
+        if (distance > RADIUS_MILES) continue;
+        list.push({
+          id: `${el.type ?? 'node'}-${el.id}`,
+          name: tags.name || tags['name:en'] || tags['name:ar'] || 'Unnamed Mosque',
+          address: formatAddress(tags),
+          latitude: elat,
+          longitude: elon,
+          distance,
+          phone: tags.phone || tags['contact:phone'],
+          website: tags.website || tags['contact:website'],
+        });
+      }
+      list.sort((a, b) => a.distance - b.distance);
+
+      setMosques(list);
+      setSearchCount(list.length);
+      setErrorMsg(null);
+      mosqueCache.set(searchKey, { mosques: list, timestamp: Date.now() });
+      lastSearchedRef.current = { lat, lon };
     } catch (error: any) {
+      if (error?.name === 'AbortError' || error?.message?.includes('abort')) return;
       console.error('Error fetching mosques:', error);
-      setErrorMsg(`Failed to fetch nearby mosques: ${error.message || 'Network error'}. Please check your internet connection and try again.`);
+      const msg = error?.message ?? '';
+      const friendly = msg.includes('504') || msg.includes('timed out')
+        ? 'Server timed out. Pull to refresh or tap Retry.'
+        : `Failed to fetch nearby mosques: ${msg || 'Network error'}. Check internet and tap Retry.`;
+      setErrorMsg(friendly);
       setMosques([]);
       setSearchCount(0);
     } finally {
+      isSearchingRef.current = false;
       setLoading(false);
       setRefreshing(false);
     }
   };
 
   const formatAddress = (tags: any): string => {
-    if (!tags) return 'Address not available';
-    
+    if (!tags || typeof tags !== 'object') return 'Address not available';
     const parts = [];
     if (tags['addr:housenumber']) parts.push(tags['addr:housenumber']);
     if (tags['addr:street']) parts.push(tags['addr:street']);
     if (tags['addr:city']) parts.push(tags['addr:city']);
     if (tags['addr:state']) parts.push(tags['addr:state']);
     if (tags['addr:postcode']) parts.push(tags['addr:postcode']);
-    
     return parts.length > 0 ? parts.join(', ') : 'Address not available';
   };
 
@@ -232,10 +369,30 @@ export default function MosqueFinderScreen() {
   };
 
   const onRefresh = useCallback(async () => {
-    if (!location) return;
     setRefreshing(true);
-    await searchNearbyMosques(location.coords.latitude, location.coords.longitude, selectedRadius);
-  }, [location, selectedRadius]);
+    if (location && location.coords.latitude !== 0 && location.coords.longitude !== 0) {
+      await searchNearbyMosques(location.coords.latitude, location.coords.longitude, true);
+      return;
+    }
+    if (contextLocation && contextLocation.latitude !== 0 && contextLocation.longitude !== 0) {
+      await searchNearbyMosques(contextLocation.latitude, contextLocation.longitude, true);
+      return;
+    }
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setErrorMsg('Permission to access location was denied');
+        setRefreshing(false);
+        return;
+      }
+      const currentLocation = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setLocation(currentLocation);
+      await searchNearbyMosques(currentLocation.coords.latitude, currentLocation.coords.longitude, true);
+    } catch {
+      setErrorMsg('Error getting location. Please check your location services.');
+      setRefreshing(false);
+    }
+  }, [contextLocation, location]);
 
   const openInMaps = (mosque: Mosque) => {
     const scheme = Platform.select({
@@ -306,30 +463,26 @@ export default function MosqueFinderScreen() {
     }
   }, [mosques]);
 
-  if (loading && mosques.length === 0) {
+  // Full-screen loader only while waiting for location (map shows as soon as we have it)
+  if (!location && !errorMsg) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <LinearGradient
-          colors={['#006B5E', '#00A693']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[styles.headerGradient, { paddingTop: insets.top + 10 }]}
-        >
+        <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.background }]}>
           <TouchableOpacity 
             style={styles.backButton}
             onPress={() => router.back()}
           >
-            <IconSymbol name="chevron.left" size={28} color="#FFFFFF" />
-            <Text style={[styles.backText, { color: '#FFFFFF' }]}>Back</Text>
+            <IconSymbol name="chevron.left" size={28} color={colors.text} />
+            <Text style={[styles.backText, { color: colors.text }]}>Back</Text>
           </TouchableOpacity>
           <View style={styles.headerTitleContainer}>
-            <Text style={[styles.headerTitle, { color: '#FFFFFF' }]}>Mosque Finder</Text>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>Mosque Finder</Text>
           </View>
-        </LinearGradient>
+        </View>
         <View style={styles.centerContent}>
           <ActivityIndicator size="large" color={colors.tint} />
           <Text style={[styles.loadingText, { color: colors.text }]}>
-            Finding nearby mosques...
+            Getting your location...
           </Text>
         </View>
       </View>
@@ -339,23 +492,18 @@ export default function MosqueFinderScreen() {
   if (errorMsg && !location) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <LinearGradient
-          colors={['#006B5E', '#00A693']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={[styles.headerGradient, { paddingTop: insets.top + 10 }]}
-        >
+        <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.background }]}>
           <TouchableOpacity 
             style={styles.backButton}
             onPress={() => router.back()}
           >
-            <IconSymbol name="chevron.left" size={28} color="#FFFFFF" />
-            <Text style={[styles.backText, { color: '#FFFFFF' }]}>Back</Text>
+            <IconSymbol name="chevron.left" size={28} color={colors.text} />
+            <Text style={[styles.backText, { color: colors.text }]}>Back</Text>
           </TouchableOpacity>
           <View style={styles.headerTitleContainer}>
-            <Text style={[styles.headerTitle, { color: '#FFFFFF' }]}>Mosque Finder</Text>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>Mosque Finder</Text>
           </View>
-        </LinearGradient>
+        </View>
         <View style={styles.centerContent}>
           <IconSymbol name="location.slash" size={64} color="#FF6B6B" />
           <Text style={[styles.errorText, { color: colors.text }]}>
@@ -378,68 +526,18 @@ export default function MosqueFinderScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
-      <LinearGradient
-        colors={['#006B5E', '#00A693']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[styles.headerGradient, { paddingTop: insets.top + 10 }]}
-      >
+      <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.background }]}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <IconSymbol name="chevron.left" size={28} color="#FFFFFF" />
-          <Text style={[styles.backText, { color: '#FFFFFF' }]}>Back</Text>
+          <IconSymbol name="chevron.left" size={28} color={colors.text} />
+          <Text style={[styles.backText, { color: colors.text }]}>Back</Text>
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
-          <Text style={[styles.headerTitle, { color: '#FFFFFF' }]}>Mosque Finder</Text>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Mosque Finder</Text>
+          {__DEV__ && <Text style={[styles.bundleHint, { color: colors.text }]}>• latest</Text>}
         </View>
-      </LinearGradient>
-
-      {/* Search Info Bar */}
-      <View style={[styles.infoBar, { backgroundColor: colors.cardBackground, borderBottomColor: colors.border }]}>
-        <View style={styles.infoBarContent}>
-          <View style={styles.resultCountContainer}>
-            <IconSymbol name="mappin.and.ellipse" size={20} color={colors.tint} />
-            <Text style={[styles.resultCountText, { color: colors.text }]}>
-              {searchCount} {searchCount === 1 ? 'mosque' : 'mosques'} found
-            </Text>
-          </View>
-          {loading && <ActivityIndicator size="small" color={colors.tint} />}
-        </View>
-      </View>
-
-      {/* Radius Selector */}
-      <View style={[styles.radiusSelectorContainer, { backgroundColor: colors.cardBackground }]}>
-        <Text style={[styles.radiusSelectorLabel, { color: colors.text }]}>
-          Search Radius:
-        </Text>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          style={styles.radiusScroll}
-          contentContainerStyle={styles.radiusScrollContent}
-        >
-          {RADIUS_OPTIONS.map((radius) => (
-            <TouchableOpacity
-              key={radius}
-              style={[
-                styles.radiusOption,
-                selectedRadius === radius && { backgroundColor: colors.tint },
-                selectedRadius !== radius && { backgroundColor: colors.background, borderColor: colors.border, borderWidth: 1 }
-              ]}
-              onPress={() => setSelectedRadius(radius)}
-              disabled={loading}
-            >
-              <Text style={[
-                styles.radiusOptionText,
-                selectedRadius === radius ? { color: '#FFFFFF', fontWeight: '700' } : { color: colors.text }
-              ]}>
-                {radius} mi
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
       </View>
 
       {/* Map View */}
@@ -465,7 +563,7 @@ export default function MosqueFinderScreen() {
                 latitude: location.coords.latitude,
                 longitude: location.coords.longitude,
               }}
-              radius={selectedRadius * 1609.34} // Convert miles to meters
+              radius={RADIUS_MILES * 1609.34}
               strokeColor="rgba(0, 166, 147, 0.5)"
               fillColor="rgba(0, 166, 147, 0.1)"
               strokeWidth={2}
@@ -483,9 +581,7 @@ export default function MosqueFinderScreen() {
                 pinColor="#006B5E"
               >
                 <View style={styles.markerContainer}>
-                  <View style={[styles.marker, selectedMosque?.id === mosque.id && styles.selectedMarker]}>
-                    <Text style={styles.markerEmoji}>🕌</Text>
-                  </View>
+                  <View style={[styles.marker, selectedMosque?.id === mosque.id && styles.selectedMarker]} />
                 </View>
               </Marker>
             ))}
@@ -514,41 +610,80 @@ export default function MosqueFinderScreen() {
           />
         }
       >
-        {mosques.length === 0 ? (
-          <View style={styles.emptyState}>
-            <IconSymbol name="map" size={64} color={colors.icon} />
-            <Text style={[styles.emptyText, { color: colors.text }]}>
-              No mosques found nearby
-            </Text>
-            <Text style={[styles.emptySubtext, { color: colors.text }]}>
-              Try adjusting your search radius or pull to refresh
+        {errorMsg ? (
+          <View style={styles.inlineErrorContainer}>
+            <IconSymbol name="exclamationmark.triangle.fill" size={16} color="#FFB020" />
+            <Text style={[styles.inlineErrorText, { color: colors.text }]}>
+              {errorMsg}
             </Text>
           </View>
+        ) : null}
+
+        {mosques.length === 0 ? (
+          loading ? (
+            <View style={styles.findingState}>
+              <ActivityIndicator size="small" color={colors.tint} />
+              <Text style={[styles.findingText, { color: colors.text }]}>
+                Finding mosques within 5 miles...
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.emptyState}>
+              <IconSymbol name="map" size={64} color={colors.icon} />
+              <Text style={[styles.emptyText, { color: colors.text }]}>
+                No mosques within 5 miles
+              </Text>
+              <Text style={[styles.emptySubtext, { color: colors.text }]}>
+                Pull to refresh or try again when you have a better GPS signal
+              </Text>
+              {location && (
+                <TouchableOpacity
+                  style={[styles.retryButton, { backgroundColor: colors.tint, marginTop: 16 }]}
+                  onPress={() => searchNearbyMosques(location.coords.latitude, location.coords.longitude, true)}
+                >
+                  <Text style={styles.retryButtonText}>Retry</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )
         ) : (
-          mosques.map((mosque) => (
+          <>
+            <View style={styles.listHeader}>
+              <Text style={[styles.listHeaderTitle, { color: colors.text }]}>
+                {mosques.length} mosque{mosques.length !== 1 ? 's' : ''} within 5 mi
+              </Text>
+              <Text style={[styles.listHeaderSubtitle, { color: colors.text }]}>
+                Closest to furthest
+              </Text>
+            </View>
+            {mosques.map((mosque, index) => (
             <TouchableOpacity
               key={mosque.id}
               style={[
                 styles.mosqueCard,
-                { backgroundColor: colors.cardBackground, borderColor: colors.border },
+                { borderColor: colors.border },
                 selectedMosque?.id === mosque.id && styles.selectedMosqueCard
               ]}
               onPress={() => onMosqueCardPress(mosque)}
               activeOpacity={0.7}
             >
+              <LinearGradient
+                colors={theme === 'dark' ? ['#363638', '#2A2A2C'] : ['#FFFFFF', '#F0F2F5']}
+                style={styles.mosqueCardGradient}
+              >
               <View style={styles.mosqueCardContent}>
                 <View style={styles.mosqueHeader}>
-                  <View style={[styles.iconCircle, { backgroundColor: '#006B5E' + '20' }]}>
-                    <Text style={styles.mosqueEmoji}>🕌</Text>
+                  <View style={[styles.rankBadge, { backgroundColor: colors.tint }]}>
+                    <Text style={styles.rankBadgeText}>{index + 1}</Text>
                   </View>
                   <View style={styles.mosqueHeaderInfo}>
                     <Text style={[styles.mosqueName, { color: colors.text }]}>
                       {mosque.name}
                     </Text>
                     <View style={styles.distanceBadge}>
-                      <IconSymbol name="location.fill" size={12} color="#00A693" />
-                      <Text style={[styles.mosqueDistance, { color: '#00A693' }]}>
-                        {mosque.distance.toFixed(1)} miles away
+                      <IconSymbol name="location.fill" size={12} color="#5FC9A3" />
+                      <Text style={[styles.mosqueDistance, { color: '#5FC9A3' }]}>
+                        {mosque.distance.toFixed(1)} mi
                       </Text>
                     </View>
                   </View>
@@ -558,7 +693,6 @@ export default function MosqueFinderScreen() {
                   {mosque.address}
                 </Text>
 
-                {/* Action Buttons */}
                 <View style={styles.actionButtons}>
                   <TouchableOpacity
                     style={[styles.actionButton, { backgroundColor: colors.tint }]}
@@ -601,9 +735,19 @@ export default function MosqueFinderScreen() {
                   )}
                 </View>
               </View>
+              </LinearGradient>
             </TouchableOpacity>
-          ))
+            ))}
+          </>
         )}
+        <View style={styles.attributionContainer}>
+          <Text
+            style={[styles.attributionText, { color: colors.text }]}
+            onPress={() => Linking.openURL('https://www.openstreetmap.org/copyright')}
+          >
+            Mosque data © OpenStreetMap contributors
+          </Text>
+        </View>
         <View style={{ height: 20 }} />
       </ScrollView>
     </View>
@@ -614,7 +758,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  headerGradient: {
+  header: {
     paddingBottom: 2,
     paddingHorizontal: 12,
     shadowColor: '#000',
@@ -629,18 +773,25 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   backText: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginLeft: 4,
+    fontSize: IS_IPAD ? 22 : IS_SMALL_PHONE ? 16 : 18,
+    fontWeight: '800',
+    marginLeft: 6,
   },
   headerTitleContainer: {
     alignItems: 'center',
-    marginTop: 0,
+    marginTop: 16,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: IS_IPAD ? 44 : IS_SMALL_PHONE ? 26 : 32,
+    fontFamily: Fonts.secondary,
+    fontWeight: '900',
     marginBottom: 0,
+    letterSpacing: IS_IPAD ? 1.2 : 0.8,
+  },
+  bundleHint: {
+    fontSize: 10,
+    opacity: 0.6,
+    marginTop: 2,
   },
   headerSubtitle: {
     fontSize: 11,
@@ -665,33 +816,40 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
-  radiusSelectorContainer: {
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  radiusSelectorLabel: {
-    fontSize: 15,
-    fontWeight: '600',
+  listHeader: {
     marginBottom: 12,
+    paddingHorizontal: 4,
   },
-  radiusScroll: {
-    marginHorizontal: -5,
+  listHeaderTitle: {
+    fontSize: 17,
+    fontWeight: '700',
   },
-  radiusScrollContent: {
-    paddingHorizontal: 5,
-    gap: 10,
+  listHeaderSubtitle: {
+    fontSize: 13,
+    opacity: 0.75,
+    marginTop: 2,
   },
-  radiusOption: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-    marginHorizontal: 5,
+  attributionContainer: {
+    paddingVertical: 16,
+    alignItems: 'center',
   },
-  radiusOptionText: {
+  attributionText: {
+    fontSize: 11,
+    opacity: 0.6,
+    textDecorationLine: 'underline',
+  },
+  rankBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  rankBadgeText: {
+    color: '#FFFFFF',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '800',
   },
   mapContainer: {
     height: 200,
@@ -731,9 +889,6 @@ const styles = StyleSheet.create({
     borderWidth: 4,
     transform: [{ scale: 1.2 }],
   },
-  markerEmoji: {
-    fontSize: 20,
-  },
   fitButton: {
     position: 'absolute',
     bottom: 16,
@@ -759,15 +914,19 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  mosqueCardGradient: {
+    flex: 1,
+    overflow: 'hidden',
   },
   selectedMosqueCard: {
     borderWidth: 3,
-    borderColor: '#00A693',
-    shadowColor: '#00A693',
+    borderColor: '#5FC9A3',
+    shadowColor: '#5FC9A3',
     shadowOpacity: 0.3,
     shadowRadius: 12,
     elevation: 8,
@@ -782,17 +941,6 @@ const styles = StyleSheet.create({
   },
   mosqueHeaderInfo: {
     flex: 1,
-  },
-  iconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  mosqueEmoji: {
-    fontSize: 28,
   },
   mosqueName: {
     fontSize: 18,
@@ -879,6 +1027,34 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  findingState: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    padding: 32,
+    marginTop: 24,
+  },
+  findingText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  inlineErrorContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 12,
+    backgroundColor: 'rgba(255, 176, 32, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 176, 32, 0.4)',
+  },
+  inlineErrorText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
   },
   emptyState: {
     alignItems: 'center',

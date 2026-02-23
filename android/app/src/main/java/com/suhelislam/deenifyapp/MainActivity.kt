@@ -1,4 +1,4 @@
-package com.anonymous.deenifyapp
+package com.suhelislam.deenifyapp
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

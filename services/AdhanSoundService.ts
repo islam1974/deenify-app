@@ -37,8 +37,8 @@ export class AdhanSoundService {
   static readonly ADHAN_OPTIONS: AdhanOption[] = [
     {
       id: 'adhan',
-      name: 'Adhan',
-      description: 'Traditional Adhan',
+      name: 'Reminder tone',
+      description: 'Notification sound',
       file: null, // Will use URL instead
     },
   ];

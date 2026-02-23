@@ -1,3 +1,5 @@
+import { Coordinates, CalculationMethod, Madhab, PrayerTimes as AdhanPrayerTimes } from 'adhan';
+
 export interface PrayerTime {
   name: string;
   time: string;
@@ -44,9 +46,138 @@ interface PrayerTimesResponse {
   };
 }
 
+const CACHE_KEY_COORDS = 'prayer_times_cache_coords';
+const CACHE_KEY_CITY = 'prayer_times_cache_city';
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+interface CachedPrayerTimes {
+  times: PrayerTime[];
+  timestamp: number;
+  key: string;
+}
+
 export class PrayerTimesService {
   private static readonly API_BASE_URL = 'https://api.aladhan.com/v1';
-  
+  private static cacheCoords: CachedPrayerTimes | null = null;
+  private static cacheCity: CachedPrayerTimes | null = null;
+
+  private static getCachedCoords(lat: number, lon: number, dateStr: string): PrayerTime[] | null {
+    const key = `${lat.toFixed(2)},${lon.toFixed(2)},${dateStr}`;
+    const c = PrayerTimesService.cacheCoords;
+    if (c && c.key === key && Date.now() - c.timestamp < CACHE_TTL_MS) return c.times;
+    return null;
+  }
+
+  private static setCacheCoords(lat: number, lon: number, dateStr: string, times: PrayerTime[]) {
+    PrayerTimesService.cacheCoords = {
+      times,
+      timestamp: Date.now(),
+      key: `${lat.toFixed(2)},${lon.toFixed(2)},${dateStr}`,
+    };
+  }
+
+  private static getCachedCity(city: string, country: string, dateStr: string): PrayerTime[] | null {
+    const key = `${city},${country},${dateStr}`;
+    const c = PrayerTimesService.cacheCity;
+    if (c && c.key === key && Date.now() - c.timestamp < CACHE_TTL_MS) return c.times;
+    return null;
+  }
+
+  private static setCacheCity(city: string, country: string, dateStr: string, times: PrayerTime[]) {
+    PrayerTimesService.cacheCity = { times, timestamp: Date.now(), key: `${city},${country},${dateStr}` };
+  }
+
+  private static formatTime24to12(time24: string): string {
+    const [h, m] = time24.split(':').map(Number);
+    const period = h >= 12 ? 'PM' : 'AM';
+    const displayHours = h % 12 || 12;
+    return `${String(displayHours).padStart(2, '0')}:${String(m || 0).padStart(2, '0')} ${period}`;
+  }
+
+  private static async fetchFromUmmahAPI(
+    latitude: number,
+    longitude: number,
+    madhab: string
+  ): Promise<PrayerTime[]> {
+    const madhabParam = madhab === 'Hanafi' ? 'Hanafi' : 'Shafi';
+    const url = `https://www.ummahapi.com/api/prayer-times?lat=${latitude}&lng=${longitude}&madhab=${madhabParam}&method=MuslimWorldLeague`;
+    const res = await fetch(url);
+    const json = await res.json();
+    if (!json?.success || !json?.data?.prayer_times) throw new Error('UmmahAPI invalid response');
+    const pt = json.data.prayer_times;
+    const times: PrayerTime[] = [
+      { name: 'Fajr', time: this.formatTime24to12(pt.fajr), arabic: 'الفجر', next: false },
+      { name: 'Sunrise', time: this.formatTime24to12(pt.sunrise), arabic: 'الشروق', next: false },
+      { name: 'Dhuhr', time: this.formatTime24to12(pt.dhuhr), arabic: 'الظهر', next: false },
+      { name: 'Asr', time: this.formatTime24to12(pt.asr), arabic: 'العصر', next: false },
+      { name: 'Maghrib', time: this.formatTime24to12(pt.maghrib), arabic: 'المغرب', next: false },
+      { name: 'Isha', time: this.formatTime24to12(pt.isha), arabic: 'العشاء', next: false },
+    ];
+    const nextIdx = this.getNextPrayerIndex(times, new Date());
+    if (nextIdx >= 0 && nextIdx < times.length) times[nextIdx].next = true;
+    return times;
+  }
+
+  private static calculateWithAdhan(
+    latitude: number,
+    longitude: number,
+    date: Date,
+    calculationMethod: string,
+    madhab: string
+  ): PrayerTime[] {
+    const coords = new Coordinates(latitude, longitude);
+    const params =
+      calculationMethod === 'Karachi'
+        ? CalculationMethod.Karachi()
+        : calculationMethod === 'ISNA'
+          ? CalculationMethod.NorthAmerica()
+          : calculationMethod === 'Egyptian'
+            ? CalculationMethod.Egyptian()
+            : CalculationMethod.MuslimWorldLeague();
+    if (madhab === 'Hanafi') params.madhab = Madhab.Hanafi;
+    const pt = new AdhanPrayerTimes(coords, date, params);
+    const format = (d: Date) =>
+      d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    const times: PrayerTime[] = [
+      { name: 'Fajr', time: format(pt.fajr), arabic: 'الفجر', next: false },
+      { name: 'Sunrise', time: format(pt.sunrise), arabic: 'الشروق', next: false },
+      { name: 'Dhuhr', time: format(pt.dhuhr), arabic: 'الظهر', next: false },
+      { name: 'Asr', time: format(pt.asr), arabic: 'العصر', next: false },
+      { name: 'Maghrib', time: format(pt.maghrib), arabic: 'المغرب', next: false },
+      { name: 'Isha', time: format(pt.isha), arabic: 'العشاء', next: false },
+    ];
+    const nextIdx = this.getNextPrayerIndex(times, new Date());
+    if (nextIdx >= 0 && nextIdx < times.length) times[nextIdx].next = true;
+    return times;
+  }
+
+  private static async fetchPrayerTimesJson(url: string, retries = 3): Promise<PrayerTimesResponse> {
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        const res = await fetch(url);
+        const data: PrayerTimesResponse = await res.json();
+        if (data?.code === 200) return data;
+        const msg = data?.message || `API error ${data?.code ?? res.status}`;
+        const isServerError =
+          msg.includes('ring-balancer') ||
+          msg.includes('unexpected error') ||
+          msg.includes('upstream') ||
+          msg.includes('invalid response');
+        lastError = new Error(isServerError ? 'Prayer times service is temporarily unavailable.' : msg);
+        if (attempt < retries - 1) {
+          await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        }
+      } catch (e) {
+        lastError = e instanceof Error ? e : new Error(String(e));
+        if (attempt < retries - 1) {
+          await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        }
+      }
+    }
+    throw lastError || new Error('Request failed');
+  }
+
   // Calculation method mappings for Aladhan API
   private static readonly CALCULATION_METHODS = {
     MWL: 3,        // Muslim World League
@@ -89,43 +220,48 @@ export class PrayerTimesService {
     calculationMethod: string = 'MWL',
     madhab: string = 'Standard'
   ): Promise<PrayerTime[]> {
-    try {
-      const currentDate = date || new Date();
-      const dateString = currentDate.toISOString().split('T')[0];
-      
-      // Get calculation method ID
-      const methodId = this.CALCULATION_METHODS[calculationMethod as keyof typeof this.CALCULATION_METHODS] || 3;
-      
-      // Build URL with calculation method and madhab
-      // API automatically handles timezone and DST based on coordinates
-      let url = `${this.API_BASE_URL}/timings/${dateString}?latitude=${latitude}&longitude=${longitude}&method=${methodId}`;
-      
-      // Add madhab parameter for Asr calculation
-      if (madhab === 'Hanafi') {
-        url += '&school=1'; // Hanafi school
-      } else {
-        url += '&school=0'; // Standard school (Shafi'i, Maliki, Hanbali)
-      }
-      
-      // Validate coordinates are within reasonable bounds
-      if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
-        console.error(`❌ Invalid coordinates: ${latitude}, ${longitude}`);
-        throw new Error('Invalid location coordinates');
-      }
-      
-      console.log(`🌍 Fetching prayer times for coordinates: ${latitude}, ${longitude}`);
-      console.log(`📅 Date: ${dateString}`);
-      console.log(`🔗 API URL: ${url}`);
-      
-      const response = await fetch(url);
-      const data: PrayerTimesResponse = await response.json();
+    const currentDate = date || new Date();
+    const dateString = currentDate.toISOString().split('T')[0];
 
-      if (data.code !== 200) {
-        console.error('❌ API Error:', data);
-        throw new Error(`Failed to fetch prayer times: ${data.status}`);
+    const cached = this.getCachedCoords(latitude, longitude, dateString);
+    if (cached) return cached;
+
+    if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+      throw new Error('Invalid location coordinates');
+    }
+
+    const methodId = this.CALCULATION_METHODS[calculationMethod as keyof typeof this.CALCULATION_METHODS] || 3;
+    let url = `${this.API_BASE_URL}/timings/${dateString}?latitude=${latitude}&longitude=${longitude}&method=${methodId}`;
+    if (madhab === 'Hanafi') url += '&school=1';
+    else url += '&school=0';
+
+    try {
+      let data: PrayerTimesResponse;
+      try {
+        data = await this.fetchPrayerTimesJson(url);
+      } catch (aladhanErr: any) {
+        console.warn('Aladhan API failed, trying UmmahAPI:', aladhanErr?.message);
+        try {
+          const fallbackTimes = await this.fetchFromUmmahAPI(latitude, longitude, madhab);
+          this.setCacheCoords(latitude, longitude, dateString, fallbackTimes);
+          console.log('✅ Prayer times from UmmahAPI (fallback)');
+          return fallbackTimes;
+        } catch (ummahErr) {
+          console.warn('UmmahAPI failed, using offline calculation:', ummahErr);
+          const offlineTimes = this.calculateWithAdhan(
+            latitude,
+            longitude,
+            currentDate,
+            calculationMethod,
+            madhab
+          );
+          this.setCacheCoords(latitude, longitude, dateString, offlineTimes);
+          console.log('✅ Prayer times from Adhan (offline fallback)');
+          return offlineTimes;
+        }
       }
-      
-      console.log(`✅ API Response:`, {
+
+      console.log(`✅ API Response (Aladhan):`, {
         timings: data.data.timings,
         timezone: data.data.meta.timezone,
         method: data.data.meta.method.name
@@ -185,16 +321,25 @@ export class PrayerTimesService {
         prayerTimes[nextPrayerIndex].next = true;
       }
 
-      // Log timezone info for debugging DST
-      if (data.data.meta && data.data.meta.timezone) {
+      if (data.data.meta?.timezone) {
         console.log(`Prayer times fetched for timezone: ${data.data.meta.timezone}`);
         this.logDSTStatus();
       }
 
+      this.setCacheCoords(latitude, longitude, dateString, prayerTimes);
       return prayerTimes;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching prayer times:', error);
-      throw new Error('Failed to fetch prayer times. Please check your internet connection.');
+      const fallback = this.cacheCoords?.times ?? null;
+      if (fallback) {
+        console.log('📦 Using cached prayer times after error');
+        return fallback;
+      }
+      const msg =
+        error?.message?.includes('Network') || error?.name === 'TypeError'
+          ? 'Failed to fetch prayer times. Please check your internet connection.'
+          : error?.message || 'Prayer times temporarily unavailable. Please try again.';
+      throw new Error(msg);
     }
   }
 
@@ -205,29 +350,52 @@ export class PrayerTimesService {
     calculationMethod: string = 'MWL',
     madhab: string = 'Standard'
   ): Promise<PrayerTime[]> {
-    try {
-      const currentDate = date || new Date();
-      const dateString = currentDate.toISOString().split('T')[0];
-      
-      // Get calculation method ID
-      const methodId = this.CALCULATION_METHODS[calculationMethod as keyof typeof this.CALCULATION_METHODS] || 3;
-      
-      // Build URL with calculation method and madhab
-      // API automatically handles timezone and DST/BST based on city location
-      let url = `${this.API_BASE_URL}/timingsByCity/${dateString}?city=${encodeURIComponent(city)}&country=${encodeURIComponent(country)}&method=${methodId}`;
-      
-      // Add madhab parameter for Asr calculation
-      if (madhab === 'Hanafi') {
-        url += '&school=1'; // Hanafi school
-      } else {
-        url += '&school=0'; // Standard school (Shafi'i, Maliki, Hanbali)
-      }
-      
-      const response = await fetch(url);
-      const data: PrayerTimesResponse = await response.json();
+    const currentDate = date || new Date();
+    const dateString = currentDate.toISOString().split('T')[0];
 
-      if (data.code !== 200) {
-        throw new Error('Failed to fetch prayer times');
+    const cached = this.getCachedCity(city, country, dateString);
+    if (cached) return cached;
+
+    const methodId = this.CALCULATION_METHODS[calculationMethod as keyof typeof this.CALCULATION_METHODS] || 3;
+    let url = `${this.API_BASE_URL}/timingsByCity/${dateString}?city=${encodeURIComponent(city)}&country=${encodeURIComponent(country)}&method=${methodId}`;
+    if (madhab === 'Hanafi') url += '&school=1';
+    else url += '&school=0';
+
+    const CITY_COORDS: Record<string, [number, number]> = {
+      'London,United Kingdom': [51.5074, -0.1278],
+      'New York,USA': [40.7128, -74.006],
+      'New York,United States': [40.7128, -74.006],
+      'Los Angeles,USA': [34.0522, -118.2437],
+      'Chicago,USA': [41.8781, -87.6298],
+      'Toronto,Canada': [43.6532, -79.3832],
+      'Sydney,Australia': [-33.8688, 151.2093],
+      'Dubai,United Arab Emirates': [25.2048, 55.2708],
+      'Dhaka,Bangladesh': [23.8103, 90.4125],
+      'Karachi,Pakistan': [24.8607, 67.0011],
+      'Istanbul,Turkey': [41.0082, 28.9784],
+      'Cairo,Egypt': [30.0444, 31.2357],
+      'Riyadh,Saudi Arabia': [24.7136, 46.6753],
+      'Kuala Lumpur,Malaysia': [3.139, 101.6869],
+      'Jakarta,Indonesia': [-6.2088, 106.8456],
+    };
+
+    try {
+      let data: PrayerTimesResponse;
+      try {
+        data = await this.fetchPrayerTimesJson(url);
+      } catch (aladhanErr: any) {
+        const key = `${city},${country}`;
+        const coords = CITY_COORDS[key] || CITY_COORDS[`${city},${country.replace(/\s/g, '')}`];
+        if (coords) {
+          console.warn('Aladhan city API failed, using coordinates fallback:', key);
+          return this.getPrayerTimes(coords[0], coords[1], currentDate, calculationMethod, madhab);
+        }
+        const fallback = this.cacheCity?.times ?? this.cacheCoords?.times ?? null;
+        if (fallback) {
+          console.log('📦 Using cached prayer times');
+          return fallback;
+        }
+        throw aladhanErr;
       }
 
       const timings = data.data.timings;
@@ -280,16 +448,25 @@ export class PrayerTimesService {
         prayerTimes[nextPrayerIndex].next = true;
       }
 
-      // Log timezone info for debugging DST
-      if (data.data.meta && data.data.meta.timezone) {
+      if (data.data.meta?.timezone) {
         console.log(`Prayer times fetched for timezone: ${data.data.meta.timezone}`);
         this.logDSTStatus();
       }
 
+      this.setCacheCity(city, country, dateString, prayerTimes);
       return prayerTimes;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching prayer times by city:', error);
-      throw new Error('Failed to fetch prayer times. Please check your internet connection.');
+      const fallback = this.cacheCity?.times ?? this.cacheCoords?.times ?? null;
+      if (fallback) {
+        console.log('📦 Using cached prayer times after error');
+        return fallback;
+      }
+      const msg =
+        error?.message?.includes('Network') || error?.name === 'TypeError'
+          ? 'Failed to fetch prayer times. Please check your internet connection.'
+          : error?.message || 'Prayer times temporarily unavailable. Please try again.';
+      throw new Error(msg);
     }
   }
 
@@ -343,6 +520,23 @@ export class PrayerTimesService {
     const july = new Date(now.getFullYear(), 6, 1);
     const stdTimezoneOffset = Math.max(january.getTimezoneOffset(), july.getTimezoneOffset());
     return now.getTimezoneOffset() < stdTimezoneOffset;
+  }
+
+  /**
+   * Get current time in a specific IANA timezone (e.g. Asia/Dhaka).
+   * Use this so "current time" and "next prayer" use the location's time, not device time.
+   */
+  static getNowInTimezone(timezone: string): { hours: number; minutes: number; timeMinutes: number } {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(new Date());
+    const hours = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10);
+    const minutes = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10);
+    return { hours, minutes, timeMinutes: hours * 60 + minutes };
   }
 
   /**

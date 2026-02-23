@@ -1,4 +1,4 @@
-package com.anonymous.deenifyapp
+package com.suhelislam.deenifyapp
 
 import android.app.Application
 import android.content.res.Configuration

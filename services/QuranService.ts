@@ -1,4 +1,3 @@
-import { Audio } from 'expo-av';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface Chapter {
@@ -24,8 +23,98 @@ export interface ChapterWithVerses extends Chapter {
   verses: Verse[];
 }
 
+const FAWAZAHMED0_BASE = 'https://cdn.jsdelivr.net/gh/fawazahmed0/quran-api@1';
+
+/** Maps fontId to fawazahmed0 Arabic edition (Unlicense). Uthmani-style vs simple. */
+const FAWAZAHMED0_ARABIC_EDITION: Record<string, string> = {
+  kfgqpc_uthmani: 'ara-quranacademy',
+  scheherazade: 'ara-quranacademy',
+  uthmani: 'ara-quranacademy',
+  amiri_quran: 'ara-quransimple',
+  me_quran: 'ara-quransimple',
+  vazeh_quran: 'ara-quransimple',
+};
+
+/** Maps our translator ids to fawazahmed0 edition names (Unlicense, commercial-friendly). */
+const FAWAZAHMED0_EDITION: Record<string, string> = {
+  // English
+  sahih: 'eng-ummmuhammad',
+  asad: 'eng-muhammadasad',
+  pickthall: 'eng-mohammedmarmadu',
+  yusufali: 'eng-abdullahyusufal',
+  yusuf_ali: 'eng-abdullahyusufal',
+  shakir: 'eng-mohammadhabibsh',
+  muhammad: 'eng-muhammadtaqiudd',
+  muhammad_taqi: 'eng-muhammadtaqiudd',
+  clear: 'eng-mustafakhattabg',
+  dr_mohsen: 'eng-muhammadtaqiudd',
+  itani: 'eng-talalitani',
+  khan: 'eng-muhammadtaqiudd',
+  maududi: 'eng-abulalamaududi',
+  muhammad_asad: 'eng-muhammadasad',
+  sarwar: 'eng-muhammadsarwar',
+  taqi_usmani: 'eng-muftitaqiusmani',
+  muhammad_taqi_usmani: 'eng-muftitaqiusmani',
+  wahiduddin: 'eng-wahiduddinkhan',
+  ghali: 'eng-muhammadmahmoud',
+  quran_project: 'eng-mustafakhattabg',
+  // Arabic
+  arabic_muyassar: 'ara-kingfahadquranc',
+  arabic_simple: 'ara-quransimple',
+  // Urdu
+  urdu_jalandhry: 'urd-fatehmuhammadja',
+  urdu_mehmood: 'urd-mahmoodulhassan',
+  urdu_muhammad: 'urd-muhammadjunagar',
+  urdu_qadri: 'urd-muhammadtahirul',
+  urdu_taqi_usmani: 'urd-muhammadtaqiusm',
+  urdu_wahiduddin: 'eng-wahiduddinkhan',
+  // French, German, Spanish
+  french_hamidullah: 'fra-muhammadhamidul',
+  french_muhammad: 'fra-muhammadhamidul',
+  german_bubenheim: 'deu-asfbubenheimand',
+  german_khoury: 'deu-adeltheodorkhou',
+  spanish_cortes: 'spa-juliocortes',
+  spanish_garcia: 'spa-muhammadisagarc',
+  // Turkish
+  turkish_ali: 'tur-alibulac',
+  turkish_bulac: 'tur-alibulac',
+  turkish_diyanet: 'tur-diyanetisleri',
+  turkish_ozturk: 'tur-yasarnuriozturk',
+  turkish_vakfi: 'tur-diyanetvakfi',
+  turkish_yazir: 'tur-elmalilihamdiya',
+  // Indonesian, Malay
+  indonesian_bahasa: 'ind-indonesianislam',
+  indonesian_muhammad: 'ind-muhammadquraish',
+  malay_abdullah: 'msa-abdullahmuhamma',
+  malay_basmeih: 'msa-abdullahmuhamma',
+  // Chinese, Japanese
+  chinese_simplified: 'zho-majian',
+  chinese_traditional: 'zho-majian1',
+  japanese_saito: 'jpn-ryoichimita',
+  // Russian
+  russian_krachkovsky: 'rus-ignatyyulianovi',
+  russian_magomed: 'rus-magomednuriosma',
+  russian_osmanov: 'rus-magomednuriosma',
+  russian_porokhova: 'rus-vporokhova',
+  // Persian
+  persian_ansarian: 'fas-hussainansarian',
+  persian_ayati: 'fas-abdolmohammaday',
+  persian_fooladvand: 'fas-mohammadmahdifo',
+  persian_ghomshei: 'fas-mahdielahighoms',
+  persian_khorramdel: 'fas-mostafakhorramd',
+  persian_khorramshahi: 'fas-bahaoddinkhorra',
+  persian_makarem: 'fas-nasermakaremshi',
+  persian_moezzi: 'fas-mohammadkazemmo',
+  persian_mojtabavi: 'fas-sayyedjalaloddi',
+  persian_qaraati: 'fas-mohsengharaati',
+  persian_sadeqi: 'fas-mohammadsadeqit',
+  // Bengali
+  bengali_muhiuddin: 'ben-muhiuddinkhan',
+  bengali_zohurul: 'ben-zohurulhoque',
+};
+
 class QuranService {
-  private baseUrl = 'https://api.alquran.cloud/v1';
+  private fawazahmed0Base = FAWAZAHMED0_BASE;
   private audioBaseUrl = 'https://www.everyayah.com/data/Alafasy_128kbps/';
   private chaptersCache: Chapter[] | null = null;
   private chaptersCacheKey = 'quran_chapters_cache';
@@ -149,39 +238,7 @@ class QuranService {
     { id: 114, name: 'الناس', nameTransliterated: 'An-Nas', nameTranslated: 'Mankind', versesCount: 6, revelationOrder: 21, revelationPlace: 'makkah' },
   ];
   
-  // Get available reciters from Al Quran Cloud API
-  async getAvailableReciters(): Promise<any[]> {
-    try {
-      const response = await fetch(`${this.baseUrl}/edition/format/audio`);
-      const data = await response.json();
-      
-      if (data.status === 'OK') {
-        return data.data;
-      }
-      throw new Error('Failed to fetch reciters');
-    } catch (error) {
-      console.error('Error fetching reciters:', error);
-      return [];
-    }
-  }
-
-  // Get available translations from Al Quran Cloud API
-  async getAvailableTranslations(): Promise<any[]> {
-    try {
-      const response = await fetch(`${this.baseUrl}/edition/format/text`);
-      const data = await response.json();
-      
-      if (data.status === 'OK') {
-        return data.data;
-      }
-      throw new Error('Failed to fetch translations');
-    } catch (error) {
-      console.error('Error fetching translations:', error);
-      return [];
-    }
-  }
-  
-  // Popular Quran API endpoints with caching
+  // Chapter list (static + cache). No external API for Quran text — all text from fawazahmed0.
   async getChapters(): Promise<Chapter[]> {
     try {
       // 1. Check memory cache first (instant)
@@ -243,88 +300,14 @@ class QuranService {
     }
   }
   
-  // Background refresh to keep cache updated without blocking UI
+  // Chapter list uses static data only (no external API). Keeps app 100% fawazahmed0 for Quran text.
   private refreshChaptersInBackground() {
-    fetch(`${this.baseUrl}/meta`)
-      .then(response => response.json())
-      .then(data => {
-        if (data.status === 'OK') {
-          const chapters = data.data.surahs.references.map((surah: any) => ({
-            id: surah.number,
-            name: surah.name,
-            nameTransliterated: surah.englishName,
-            nameTranslated: surah.englishNameTranslation,
-            versesCount: surah.numberOfAyahs,
-            revelationOrder: surah.revelationOrder,
-            revelationPlace: surah.revelationType === 'Meccan' ? 'makkah' : 'madinah'
-          }));
-
-          // Update memory cache
-          this.chaptersCache = chapters;
-
-          // Update AsyncStorage cache
-          AsyncStorage.setItem(
-            this.chaptersCacheKey,
-            JSON.stringify({
-              data: chapters,
-              timestamp: Date.now()
-            })
-          ).catch(err => console.error('Failed to cache chapters:', err));
-
-          console.log('📖 Background refresh completed');
-        }
-      })
-      .catch(error => {
-        console.log('📖 Background refresh failed (silent):', error.message);
-        // Silently fail - we already have static chapters loaded
-      });
-  }
-
-  async getChapter(chapterNumber: number, translation: string = 'en.sahih'): Promise<ChapterWithVerses> {
-    try {
-      // Fetch chapter info
-      const chapterResponse = await fetch(`${this.baseUrl}/surah/${chapterNumber}`);
-      const chapterData = await chapterResponse.json();
-      
-      if (chapterData.status !== 'OK') {
-        throw new Error('Failed to fetch chapter');
-      }
-
-      // Fetch Arabic verses
-      const arabicResponse = await fetch(`${this.baseUrl}/surah/${chapterNumber}`);
-      const arabicData = await arabicResponse.json();
-      
-      // Fetch verses with translation
-      const versesResponse = await fetch(`${this.baseUrl}/surah/${chapterNumber}/${translation}`);
-      const versesData = await versesResponse.json();
-      
-      if (versesData.status !== 'OK' || arabicData.status !== 'OK') {
-        throw new Error('Failed to fetch verses');
-      }
-
-      const surah = chapterData.data;
-      const verses = versesData.data.ayahs.map((ayah: any, index: number) => ({
-        id: ayah.numberInSurah,
-        verseNumber: ayah.numberInSurah,
-        text: arabicData.data.ayahs[index]?.text || ayah.text, // Arabic text
-        translation: ayah.text, // English translation
-        audioUrl: `${this.audioBaseUrl}${String(chapterNumber).padStart(3, '0')}${String(ayah.numberInSurah).padStart(3, '0')}.mp3`
-      }));
-
-      return {
-        id: surah.number,
-        name: surah.name,
-        nameTransliterated: surah.englishName,
-        nameTranslated: surah.englishNameTranslation,
-        versesCount: surah.numberOfAyahs,
-        revelationOrder: surah.revelationOrder,
-        revelationPlace: surah.revelationType === 'Meccan' ? 'makkah' : 'madinah',
-        verses: verses
-      };
-    } catch (error) {
-      console.error('Error fetching chapter:', error);
-      throw error;
-    }
+    const chapters = this.staticChapters;
+    this.chaptersCache = chapters;
+    AsyncStorage.setItem(
+      this.chaptersCacheKey,
+      JSON.stringify({ data: chapters, timestamp: Date.now() })
+    ).catch(err => console.error('Failed to cache chapters:', err));
   }
 
   async getVerseAudio(chapterNumber: number, verseNumber: number, reciterId: string = 'alafasy'): Promise<string> {
@@ -339,7 +322,6 @@ class QuranService {
       'shuraim': 'https://www.everyayah.com/data/Shuraim_128kbps/',
       'mishary': 'https://www.everyayah.com/data/Mishary_128kbps/',
       'ajamy': 'https://www.everyayah.com/data/Ajamy_128kbps/',
-      'khalid_al_jalil': 'https://www.everyayah.com/data/Khalid_Al_Jalil_128kbps/',
       'abdul_basit': 'https://www.everyayah.com/data/Abdul_Basit_Murattal_128kbps/',
       
       // Additional popular reciters
@@ -358,12 +340,10 @@ class QuranService {
       'ahmed_ajamy': 'https://www.everyayah.com/data/Ahmed_Ajamy_128kbps/',
       'bandar_baleelah': 'https://www.everyayah.com/data/Bandar_Baleelah_128kbps/',
       'fares_abbad': 'https://www.everyayah.com/data/Fares_Abbad_128kbps/',
-      'khalid_qahtani': 'https://www.everyayah.com/data/Khalid_Qahtani_128kbps/',
       'mohammad_ayyoub': 'https://www.everyayah.com/data/Mohammad_Ayyoub_128kbps/',
       'mohammad_jibreel': 'https://www.everyayah.com/data/Mohammad_Jibreel_128kbps/',
       'mohammad_siddiq_minshawi': 'https://www.everyayah.com/data/Mohammad_Siddiq_Minshawi_128kbps/',
       'muhammad_al_luhaidan': 'https://www.everyayah.com/data/Muhammad_Al_Luhaidan_128kbps/',
-      'salah_al_budair': 'https://www.everyayah.com/data/Salah_Al_Budair_128kbps/',
       'salah_rashed': 'https://www.everyayah.com/data/Salah_Rashed_128kbps/',
       'tareq_ibrahim': 'https://www.everyayah.com/data/Tareq_Ibrahim_128kbps/',
       'younis_ali': 'https://www.everyayah.com/data/Younis_Ali_128kbps/',
@@ -391,168 +371,60 @@ class QuranService {
     return `tts://${chapterNumber}/${verseNumber}/${translatorId}`;
   }
 
-  // Alternative API for better translations with font support
+  // All Quran text (Arabic + translations) from fawazahmed0/quran-api (Unlicense).
   async getChapterWithTranslation(chapterNumber: number, translatorId: string = 'sahih', reciterId: string = 'alafasy', fontId: string = 'uthmani'): Promise<ChapterWithVerses> {
     try {
-      // Enhanced translator mapping with Al Quran Cloud supported translations
-      const translatorMap: Record<string, string> = {
-        // English translations
-        'sahih': 'en.sahih',
-        'asad': 'en.asad',
-        'pickthall': 'en.pickthall',
-        'yusufali': 'en.yusufali',
-        'shakir': 'en.shakir',
-        'muhammad': 'en.hilali',
-        'clear': 'en.clear',
-        'dr_mohsen': 'en.mohsin',
-        'fooladvand': 'en.fooladvand',
-        'ghali': 'en.ghali',
-        'itani': 'en.itani',
-        'khan': 'en.khan',
-        'maududi': 'en.maududi',
-        'muhammad_asad': 'en.asad',
-        'muhammad_taqi': 'en.hilali',
-        'qaribullah': 'en.qaribullah',
-        'quran_project': 'en.quranproject',
-        'sarwar': 'en.sarwar',
-        'tahir_ul_qadri': 'en.tahir',
-        'taqi_usmani': 'en.usmani',
-        'wahiduddin': 'en.wahiduddin',
-        'yusuf_ali': 'en.yusufali',
-        
-        // Arabic translations
-        'arabic_muyassar': 'ar.muyassar',
-        'arabic_simple': 'ar.simple',
-        'arabic_wordbyword': 'ar.wordbyword',
-        
-        // Other languages
-        'urdu_jalandhry': 'ur.jalandhry',
-        'urdu_mehmood': 'ur.mehmood',
-        'urdu_muhammad': 'ur.muhammad',
-        'urdu_qadri': 'ur.qadri',
-        'urdu_salahuddin': 'ur.salahuddin',
-        'urdu_tahir': 'ur.tahir',
-        'urdu_taqi': 'ur.taqi',
-        'urdu_taqi_usmani': 'ur.usmani',
-        'urdu_wahiduddin': 'ur.wahiduddin',
-        'urdu_yusuf': 'ur.yusuf',
-        
-        // French
-        'french_hamidullah': 'fr.hamidullah',
-        'french_muhammad': 'fr.muhammad',
-        
-        // German
-        'german_bubenheim': 'de.bubenheim',
-        'german_khoury': 'de.khoury',
-        
-        // Spanish
-        'spanish_cortes': 'es.cortes',
-        'spanish_garcia': 'es.garcia',
-        
-        // Turkish
-        'turkish_ali': 'tr.ali',
-        'turkish_bulac': 'tr.bulac',
-        'turkish_diyanet': 'tr.diyanet',
-        'turkish_ozturk': 'tr.ozturk',
-        'turkish_vakfi': 'tr.vakfi',
-        'turkish_yazir': 'tr.yazir',
-        
-        // Indonesian
-        'indonesian_bahasa': 'id.bahasa',
-        'indonesian_muhammad': 'id.muhammad',
-        
-        // Malay
-        'malay_abdullah': 'ms.abdullah',
-        'malay_basmeih': 'ms.basmeih',
-        
-        // Chinese
-        'chinese_simplified': 'zh.simplified',
-        'chinese_traditional': 'zh.traditional',
-        
-        // Japanese
-        'japanese_saito': 'ja.saito',
-        
-        // Russian
-        'russian_krachkovsky': 'ru.krachkovsky',
-        'russian_magomed': 'ru.magomed',
-        'russian_osmanov': 'ru.osmanov',
-        'russian_porokhova': 'ru.porokhova',
-        
-        // Persian
-        'persian_ansarian': 'fa.ansarian',
-        'persian_ayati': 'fa.ayati',
-        'persian_fooladvand': 'fa.fooladvand',
-        'persian_ghomshei': 'fa.ghomshei',
-        'persian_khorramdel': 'fa.khorramdel',
-        'persian_khorramshahi': 'fa.khorramshahi',
-        'persian_makarem': 'fa.makarem',
-        'persian_moezzi': 'fa.moezzi',
-        'persian_mojtabavi': 'fa.mojtabavi',
-        'persian_qaraati': 'fa.qaraati',
-        'persian_qazvini': 'fa.qazvini',
-        'persian_sadeqi': 'fa.sadeqi',
-        'persian_salehi': 'fa.salehi',
-        
-        // Bengali
-        'bengali_muhiuddin': 'bn.bengali',
-        'bengali_zohurul': 'bn.hoque'
-      };
-      
-      const translationCode = translatorMap[translatorId] || 'en.sahih';
-      
-      // Font mapping for different Quran text formats
-      const fontMap: Record<string, string> = {
-        'kfgqpc_uthmani': 'quran-uthmani',
-        'amiri_quran': 'quran-simple', 
-        'scheherazade': 'quran-uthmani',
-        'me_quran': 'quran-simple',
-        'vazeh_quran': 'quran-simple'
-      };
-      
-      const fontCode = fontMap[fontId] || 'quran-uthmani';
-      
-      console.log(`Fetching chapter ${chapterNumber} with translation: ${translationCode} and font: ${fontCode}`);
-      
-      // Fetch Arabic text with specific font format
-      const arabicResponse = await fetch(`${this.baseUrl}/surah/${chapterNumber}/${fontCode}`);
-      const arabicData = await arabicResponse.json();
-      
-      // Fetch English translation
-      const translationResponse = await fetch(`${this.baseUrl}/surah/${chapterNumber}/${translationCode}`);
-      const translationData = await translationResponse.json();
-      
-      if (arabicData.status !== 'OK') {
-        console.error('Arabic data fetch failed:', arabicData);
+      const translationEdition = FAWAZAHMED0_EDITION[translatorId] ?? 'eng-talalitani';
+      const arabicEdition = FAWAZAHMED0_ARABIC_EDITION[fontId] ?? 'ara-quranacademy';
+
+      const [arabicRes, translationRes] = await Promise.all([
+        fetch(`${this.fawazahmed0Base}/editions/${arabicEdition}/${chapterNumber}.min.json`),
+        fetch(`${this.fawazahmed0Base}/editions/${translationEdition}/${chapterNumber}.min.json`)
+      ]);
+
+      let translationResOk = translationRes;
+      if (!translationResOk.ok) {
+        translationResOk = await fetch(`${this.fawazahmed0Base}/editions/eng-talalitani/${chapterNumber}.min.json`);
+      }
+      if (!arabicRes.ok) {
         throw new Error('Failed to fetch Arabic text');
       }
-      
-      if (translationData.status !== 'OK') {
-        console.error('Translation data fetch failed:', translationData);
-        throw new Error(`Failed to fetch translation for ${translationCode}`);
+      if (!translationResOk.ok) {
+        throw new Error(`Failed to fetch translation for ${translationEdition}`);
       }
 
-      console.log(`Successfully fetched ${arabicData.data.ayahs.length} Arabic verses and ${translationData.data.ayahs.length} translation verses`);
+      const arabicJson = await arabicRes.json();
+      const translationJson = await translationResOk.json();
+      const arabicRows: { chapter: number; verse: number; text: string }[] = Array.isArray(arabicJson.chapter) ? arabicJson.chapter : [];
+      const translationRows: { verse: number; text: string }[] = Array.isArray(translationJson.chapter) ? translationJson.chapter : [];
 
-      const surah = arabicData.data;
-      const verses = await Promise.all(
-        translationData.data.ayahs.map(async (ayah: any, index: number) => ({
-          id: ayah.numberInSurah,
-          verseNumber: ayah.numberInSurah,
-          text: arabicData.data.ayahs[index]?.text || ayah.text, // Arabic text
-          translation: ayah.text, // English translation
-          audioUrl: await this.getVerseAudio(chapterNumber, ayah.numberInSurah, reciterId)
+      const translationByVerse: Record<number, string> = {};
+      translationRows.forEach((r: { verse: number; text: string }) => { translationByVerse[r.verse] = r.text; });
+
+      const verses: Verse[] = await Promise.all(
+        arabicRows.map(async (r) => ({
+          id: r.verse,
+          verseNumber: r.verse,
+          text: r.text ?? '',
+          translation: translationByVerse[r.verse] ?? '',
+          audioUrl: await this.getVerseAudio(chapterNumber, r.verse, reciterId)
         }))
       );
 
+      const meta = this.staticChapters.find((c) => c.id === chapterNumber) ?? {
+        id: chapterNumber,
+        name: '',
+        nameTransliterated: `Chapter ${chapterNumber}`,
+        nameTranslated: `Chapter ${chapterNumber}`,
+        versesCount: verses.length,
+        revelationOrder: chapterNumber,
+        revelationPlace: 'makkah' as const
+      };
+
       return {
-        id: surah.number,
-        name: surah.name,
-        nameTransliterated: surah.englishName,
-        nameTranslated: surah.englishNameTranslation,
-        versesCount: surah.numberOfAyahs,
-        revelationOrder: surah.revelationOrder,
-        revelationPlace: surah.revelationType === 'Meccan' ? 'makkah' : 'madinah',
-        verses: verses
+        ...meta,
+        versesCount: meta.versesCount,
+        verses
       };
     } catch (error) {
       console.error('Error fetching chapter with translation:', error);

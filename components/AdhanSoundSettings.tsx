@@ -126,7 +126,7 @@ export default function AdhanSoundSettingsComponent({ onClose }: AdhanSoundSetti
     >
       <View style={styles.header}>
         <Text style={[styles.title, { color: colors.text }]}>
-          Adhan Sound Settings
+          Prayer Notification Settings
         </Text>
         <TouchableOpacity onPress={onClose} style={styles.closeButton}>
           <IconSymbol name="xmark" size={24} color={colors.text} />
@@ -138,10 +138,10 @@ export default function AdhanSoundSettingsComponent({ onClose }: AdhanSoundSetti
         <View style={styles.settingRow}>
           <View style={styles.settingInfo}>
             <Text style={[styles.settingTitle, { color: colors.text }]}>
-              Enable Adhan Sound
+              Enable Prayer Reminders
             </Text>
             <Text style={[styles.settingDescription, { color: colors.text, opacity: 0.7 }]}>
-              Play adhan when prayer time arrives
+              Get notified when it's time to pray
             </Text>
           </View>
           <TouchableOpacity
@@ -164,10 +164,10 @@ export default function AdhanSoundSettingsComponent({ onClose }: AdhanSoundSetti
         <View style={styles.settingRow}>
           <View style={styles.settingInfo}>
             <Text style={[styles.settingTitle, { color: colors.text }]}>
-              Auto Play
+              Play sound with reminders
             </Text>
             <Text style={[styles.settingDescription, { color: colors.text, opacity: 0.7 }]}>
-              Automatically play adhan at prayer time
+              Optional sound when prayer notification arrives
             </Text>
           </View>
           <TouchableOpacity
@@ -223,7 +223,7 @@ export default function AdhanSoundSettingsComponent({ onClose }: AdhanSoundSetti
         {/* Adhan Selection */}
         <View style={styles.settingSection}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            Select Adhan Style
+            Notification sound
           </Text>
           {adhanOptions.map((adhan) => (
             <View key={adhan.id} style={styles.adhanOptionContainer}>
@@ -283,10 +283,10 @@ export default function AdhanSoundSettingsComponent({ onClose }: AdhanSoundSetti
         {/* Prayer Selection */}
         <View style={styles.settingSection}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            Select Prayers for Adhan
+            Prayers to remind
           </Text>
           <Text style={[styles.sectionSubtitle, { color: colors.text, opacity: 0.7 }]}>
-            Choose which prayers you want the Adhan to play for
+            Choose which prayers you want reminders for
           </Text>
           
           {Object.entries(settings.prayers || {}).map(([prayer, enabled]) => (
@@ -306,7 +306,7 @@ export default function AdhanSoundSettingsComponent({ onClose }: AdhanSoundSetti
                     {prayer.charAt(0).toUpperCase() + prayer.slice(1)}
                   </Text>
                   <Text style={[styles.prayerDescription, { color: colors.text, opacity: 0.7 }]}>
-                    {enabled ? 'Adhan enabled' : 'Adhan disabled'}
+                    {enabled ? 'Reminder on' : 'Reminder off'}
                   </Text>
                 </View>
                 <View style={[

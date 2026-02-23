@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, FlatList, Dimensions, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, FlatList, Dimensions, ActivityIndicator, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -18,6 +18,13 @@ export default function HadithScreen() {
   const colors = Colors[((theme as 'light' | 'dark') ?? 'light' as 'light' | 'dark') ?? 'light'];
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const isDarkMode = theme === 'dark';
+  const screenBackground = isDarkMode ? '#070d1b' : '#F3F4F6';
+  const cardBackground = isDarkMode ? '#122033' : '#FFFFFF';
+  const primaryTextColor = isDarkMode ? '#F8FAFC' : '#0B1120';
+  const secondaryTextColor = isDarkMode ? '#D9E3F5' : '#1F2937';
+  const mutedTextColor = isDarkMode ? '#99A8C2' : '#4B5563';
+  const accentTextColor = isDarkMode ? '#9CC4FF' : colors.icon;
   
   const [viewMode, setViewMode] = useState<ViewMode>('collections');
   const [selectedCollection, setSelectedCollection] = useState<string>('');
@@ -28,20 +35,9 @@ export default function HadithScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Get collection color based on name
+  // Get collection color - all use same color like duas
   const getCollectionColor = (index: number): string[] => {
-    const colorPalette = [
-      ['#667eea', '#764ba2'],
-      ['#f093fb', '#f5576c'],
-      ['#4facfe', '#00f2fe'],
-      ['#43e97b', '#38f9d7'],
-      ['#fa709a', '#fee140'],
-      ['#30cfd0', '#330867'],
-      ['#a8edea', '#fed6e3'],
-      ['#ff9a9e', '#fecfef'],
-      ['#ffecd2', '#fcb69f']
-    ];
-    return colorPalette[index % colorPalette.length];
+    return ['#c6ca53', '#c6ca53'];
   };
 
   const handleCollectionPress = (collectionName: string) => {
@@ -126,12 +122,33 @@ export default function HadithScreen() {
     return selectedCollection;
   };
 
-  // Render Collections Grid
+  // Footer for collections: hadith snippet + hint
+  const renderCollectionsFooter = () => (
+    <View style={[styles.collectionsFooter, { marginBottom: insets.bottom + 16 }]}>
+      <View style={[
+        styles.collectionsFooterCard,
+        { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }
+      ]}>
+        <Text style={[styles.collectionsFooterQuote, { color: secondaryTextColor }]}>
+          "Seeking knowledge is an obligation upon every Muslim."
+        </Text>
+        <Text style={[styles.collectionsFooterSource, { color: mutedTextColor }]}>
+          — Sunan Ibn Majah
+        </Text>
+      </View>
+      <Text style={[styles.collectionsFooterHint, { color: mutedTextColor }]}>
+        Tap a collection to browse categories and hadiths
+      </Text>
+    </View>
+  );
+
+  // Render Collections Grid (3 columns for 9 items = balanced 3x3 grid)
   const renderCollections = () => (
     <FlatList
       data={hadithCollections}
-      numColumns={2}
+      numColumns={3}
       contentContainerStyle={styles.collectionsGrid}
+      ListFooterComponent={renderCollectionsFooter}
       keyExtractor={(item, index) => index.toString()}
       renderItem={({ item, index }) => (
         <TouchableOpacity
@@ -148,11 +165,9 @@ export default function HadithScreen() {
             <Text style={styles.collectionName} numberOfLines={2}>
               {item.collection}
             </Text>
-            <View style={styles.collectionBadge}>
-              <Text style={styles.collectionBadgeText}>
-                {item.subcategories.length} Categories
-              </Text>
-            </View>
+            <Text style={styles.collectionBadgeText}>
+              {item.subcategories.length} {item.subcategories.length === 1 ? 'Category' : 'Categories'}
+            </Text>
           </LinearGradient>
         </TouchableOpacity>
       )}
@@ -165,32 +180,25 @@ export default function HadithScreen() {
     if (!collection) return null;
 
     return (
-      <ScrollView style={styles.categoriesContainer}>
+      <ScrollView style={[styles.categoriesContainer, { backgroundColor: screenBackground }]}>
         {collection.subcategories.map((category, index) => {
           const hadithCount = getHadithsBySubcategory(selectedCollection, category.name).length;
           return (
             <TouchableOpacity
               key={index}
               style={[styles.categoryCard, { 
-                backgroundColor: '#000000',
-                borderColor: '#1F2937'
+                backgroundColor: cardBackground,
+                borderColor: isDarkMode ? '#223248' : '#E5E7EB'
               }]}
               onPress={() => handleCategoryPress(category.name)}
               activeOpacity={0.7}
             >
               <View style={styles.categoryLeft}>
-                <View style={[styles.categoryIconCircle, { backgroundColor: colors.tint + '30' }]}>
-                  <IconSymbol 
-                    name="text.alignleft" 
-                    size={24} 
-                    color={colors.tint} 
-                  />
-                </View>
                 <View style={styles.categoryTextContainer}>
-                  <Text style={[styles.categoryName, { color: '#FFFFFF' }]}>
+                  <Text style={[styles.categoryName, { color: primaryTextColor }]}>
                     {category.name}
                   </Text>
-                  <Text style={[styles.categoryCount, { color: '#D1D5DB' }]}>
+                  <Text style={[styles.categoryCount, { color: secondaryTextColor }]}>
                     {hadithCount} {hadithCount === 1 ? 'Hadith' : 'Hadiths'}
                   </Text>
                 </View>
@@ -198,7 +206,7 @@ export default function HadithScreen() {
               <IconSymbol 
                 name="chevron.right" 
                 size={20} 
-                color="#9CA3AF" 
+                color={mutedTextColor} 
               />
             </TouchableOpacity>
           );
@@ -211,9 +219,9 @@ export default function HadithScreen() {
   const renderHadiths = () => {
     if (isLoading) {
       return (
-        <View style={styles.loadingContainer}>
+        <View style={[styles.loadingContainer, { backgroundColor: screenBackground }]}>
           <ActivityIndicator size="large" color={colors.tint} />
-          <Text style={[styles.loadingText, { color: theme === 'dark' ? '#FFFFFF' : '#1F2937' }]}>
+          <Text style={[styles.loadingText, { color: primaryTextColor }]}>
             Loading hadiths...
           </Text>
         </View>
@@ -222,9 +230,9 @@ export default function HadithScreen() {
 
     if (error) {
       return (
-        <View style={styles.emptyContainer}>
+        <View style={[styles.emptyContainer, { backgroundColor: screenBackground }]}>
           <IconSymbol name="exclamationmark.triangle" size={48} color={colors.tint} />
-          <Text style={[styles.emptyText, { color: theme === 'dark' ? '#FFFFFF' : '#1F2937' }]}>
+          <Text style={[styles.emptyText, { color: primaryTextColor }]}>
             {error}
           </Text>
         </View>
@@ -234,8 +242,8 @@ export default function HadithScreen() {
     const currentHadiths = getCurrentHadiths();
     if (currentHadiths.length === 0) {
       return (
-        <View style={styles.emptyContainer}>
-          <Text style={[styles.emptyText, { color: theme === 'dark' ? '#FFFFFF' : '#1F2937' }]}>
+        <View style={[styles.emptyContainer, { backgroundColor: screenBackground }]}>
+          <Text style={[styles.emptyText, { color: primaryTextColor }]}>
             No hadiths available in this category
           </Text>
         </View>
@@ -246,10 +254,10 @@ export default function HadithScreen() {
     const isBookmarked = bookmarkedHadiths.includes(currentHadith.id);
 
     return (
-      <ScrollView style={styles.hadithContainer}>
+      <ScrollView style={[styles.hadithContainer, { backgroundColor: screenBackground }]}>
         <View style={[styles.hadithCard, { 
-          backgroundColor: colors.cardBackground,
-          borderColor: colors.border 
+          backgroundColor: cardBackground,
+          borderColor: isDarkMode ? '#223248' : '#E5E7EB'
         }]}>
           {/* Hadith Header */}
           <View style={styles.hadithHeader}>
@@ -265,15 +273,15 @@ export default function HadithScreen() {
               <IconSymbol 
                 name={isBookmarked ? "bookmark.fill" : "bookmark"} 
                 size={24} 
-                color={isBookmarked ? "#F59E0B" : colors.text} 
+                color={isBookmarked ? "#F59E0B" : primaryTextColor} 
               />
             </TouchableOpacity>
           </View>
 
           {/* Arabic Text */}
           {currentHadith.arabic && (
-            <View style={[styles.arabicContainer, { backgroundColor: theme === 'dark' ? '#374151' : '#F9FAFB' }]}>
-              <Text style={[styles.hadithArabic, { color: theme === 'dark' ? '#FFFFFF' : '#1F2937' }]}>
+            <View style={[styles.arabicContainer, { backgroundColor: isDarkMode ? '#101c2b' : '#F8FAFC' }]}>
+              <Text style={[styles.hadithArabic, { color: primaryTextColor }]}>
                 {currentHadith.arabic}
               </Text>
             </View>
@@ -281,23 +289,23 @@ export default function HadithScreen() {
 
           {/* English Translation */}
           <View style={styles.translationContainer}>
-            <Text style={[styles.hadithText, { color: theme === 'dark' ? '#FFFFFF' : '#1F2937' }]}>
+            <Text style={[styles.hadithText, { color: primaryTextColor }]}>
               "{currentHadith.text}"
             </Text>
           </View>
 
           {/* Hadith Meta */}
-          <View style={[styles.hadithMeta, { borderTopColor: colors.border }]}>
+          <View style={[styles.hadithMeta, { borderTopColor: isDarkMode ? '#223248' : '#E5E7EB' }]}>
             <View style={styles.metaRow}>
-              <IconSymbol name="person.fill" size={16} color={theme === 'dark' ? '#D1D5DB' : '#6B7280'} />
-              <Text style={[styles.narrator, { color: theme === 'dark' ? '#FFFFFF' : '#1F2937' }]}>
+              <IconSymbol name="person.fill" size={16} color={mutedTextColor} />
+              <Text style={[styles.narrator, { color: primaryTextColor }]}>
                 {currentHadith.narrator}
               </Text>
             </View>
             {currentHadith.bookNumber && currentHadith.hadithNumber && (
               <View style={styles.metaRow}>
-                <IconSymbol name="number" size={16} color={theme === 'dark' ? '#D1D5DB' : '#6B7280'} />
-                <Text style={[styles.reference, { color: theme === 'dark' ? '#D1D5DB' : '#6B7280' }]}>
+                <IconSymbol name="number" size={16} color={mutedTextColor} />
+                <Text style={[styles.reference, { color: secondaryTextColor }]}>
                   Book {currentHadith.bookNumber}, Hadith {currentHadith.hadithNumber}
                 </Text>
               </View>
@@ -319,10 +327,10 @@ export default function HadithScreen() {
           </TouchableOpacity>
           
           <View style={styles.pageIndicatorContainer}>
-            <Text style={[styles.pageIndicator, { color: theme === 'dark' ? '#FFFFFF' : '#1F2937' }]}>
+            <Text style={[styles.pageIndicator, { color: primaryTextColor }]}>
               {currentHadithIndex + 1} / {currentHadiths.length}
             </Text>
-            <Text style={[styles.pageIndicatorLabel, { color: theme === 'dark' ? '#D1D5DB' : '#6B7280' }]}>
+            <Text style={[styles.pageIndicatorLabel, { color: secondaryTextColor }]}>
               Hadith
             </Text>
           </View>
@@ -343,26 +351,43 @@ export default function HadithScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: screenBackground }]}>
       {/* Header */}
-      <LinearGradient
-        colors={['#EBF4F5', '#B5C6E0']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={[styles.headerGradient, { paddingTop: insets.top + 2 }]}
-      >
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={handleBackPress}
+      {viewMode === 'collections' && (
+        <View
+          style={[styles.headerGradient, { backgroundColor: screenBackground, paddingTop: insets.top + 2 }]}
         >
-          <IconSymbol name="chevron.left" size={20} color="#2C3E50" />
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
-        <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerTitle}>{getHeaderTitle()}</Text>
-          <Text style={styles.headerSubtitle}>{getHeaderSubtitle()}</Text>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={handleBackPress}
+          >
+            <IconSymbol name="chevron.left.circle.fill" size={42} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
+            <Text style={[styles.backText, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
+          </TouchableOpacity>
+          <View style={styles.headerTitleContainer}>
+            <Text style={[styles.headerTitle, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>{getHeaderTitle()}</Text>
+            <Text style={[styles.headerSubtitle, { color: isDarkMode ? '#D9E3F5' : '#1F2937' }]}>{getHeaderSubtitle()}</Text>
+          </View>
         </View>
-      </LinearGradient>
+      )}
+      
+      {viewMode !== 'collections' && (
+        <View
+          style={[styles.headerGradient, { backgroundColor: screenBackground, paddingTop: insets.top + 2 }]}
+        >
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={handleBackPress}
+          >
+            <IconSymbol name="chevron.left" size={24} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
+            <Text style={[styles.backText, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
+          </TouchableOpacity>
+          <View style={styles.headerTitleContainer}>
+            <Text style={[styles.headerTitle, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>{getHeaderTitle()}</Text>
+            <Text style={[styles.headerSubtitle, { color: isDarkMode ? '#D9E3F5' : '#1F2937' }]}>{getHeaderSubtitle()}</Text>
+          </View>
+        </View>
+      )}
 
       {/* Content */}
       {viewMode === 'collections' && renderCollections()}
@@ -388,69 +413,103 @@ const styles = StyleSheet.create({
   backText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#2C3E50',
     marginLeft: 3,
   },
   headerTitleContainer: {
     alignItems: 'center',
-    marginTop: 0,
+    marginTop: 8,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2C3E50',
-    marginBottom: 1,
+    fontSize: 28,
+    fontFamily: Fonts.secondary,
+    fontWeight: '800',
+    marginBottom: 2,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    textShadowColor: 'rgba(0, 0, 0, 0.12)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
   headerSubtitle: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    color: '#34495E',
+    fontSize: 20,
     opacity: 0.9,
     fontFamily: Fonts.primary,
+    fontWeight: '700',
+    letterSpacing: 1.0,
+    textShadowColor: 'rgba(0,0,0,0.1)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
 
   // Collections Grid
   collectionsGrid: {
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingTop: 12,
+  },
+  collectionsFooter: {
+    marginTop: 24,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  collectionsFooterCard: {
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#c6ca53',
+  },
+  collectionsFooterQuote: {
+    fontSize: 15,
+    fontStyle: 'italic',
+    lineHeight: 22,
+    textAlign: 'center',
+  },
+  collectionsFooterSource: {
+    fontSize: 12,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  collectionsFooterHint: {
+    fontSize: 13,
   },
   collectionCard: {
     flex: 1,
-    margin: 8,
+    margin: 10,
     borderRadius: 16,
     overflow: 'hidden',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    maxWidth: (width - 48) / 2,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.25,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 10,
+      },
+    }),
+    maxWidth: (width - 24 - 60) / 3,
   },
   collectionGradient: {
-    padding: 20,
-    minHeight: 140,
-    justifyContent: 'space-between',
+    padding: 12,
+    minHeight: 120,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
   },
   collectionName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    marginBottom: 8,
-    lineHeight: 26,
-    textShadowColor: 'rgba(255, 255, 255, 0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-  },
-  collectionBadge: {
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#000000',
+    textAlign: 'center',
+    lineHeight: 18,
+    letterSpacing: 0.4,
   },
   collectionBadgeText: {
-    fontSize: 13,
-    color: '#1F2937',
-    fontWeight: '600',
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#000000',
+    letterSpacing: 0.2,
   },
 
   // Categories List
@@ -466,24 +525,22 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
     borderWidth: 1,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 5,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
   },
   categoryLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-  },
-  categoryIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
   },
   categoryTextContainer: {
     flex: 1,
@@ -495,7 +552,6 @@ const styles = StyleSheet.create({
   },
   categoryCount: {
     fontSize: 13,
-    opacity: 0.6,
   },
 
   // Hadiths Viewer
@@ -508,11 +564,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 20,
     marginBottom: 20,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
   },
   hadithHeader: {
     flexDirection: 'row',

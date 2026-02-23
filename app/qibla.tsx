@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Image, Animated, Easing, Plat
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Fonts } from '@/constants/theme';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -21,6 +22,9 @@ export default function QiblaScreen() {
   const colors = Colors[((theme as 'light' | 'dark') ?? 'light' as 'light' | 'dark') ?? 'light'];
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
+  const isDarkMode = theme === 'dark';
+  const screenBackground = isDarkMode ? '#070d1b' : '#F3F4F6';
   const { location: contextLocation, locationEnabled } = useLocation();
   
   const [qiblaData, setQiblaData] = useState<QiblaData | null>(null);
@@ -35,6 +39,8 @@ export default function QiblaScreen() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const magnetometerSubscription = useRef<any>(null);
   const previousAlignmentRef = useRef<boolean>(false);
+  const smoothedHeading = useRef<number>(0);
+  const lastHeadingUpdate = useRef<number>(0);
 
   useEffect(() => {
     initializeQibla();
@@ -105,7 +111,7 @@ export default function QiblaScreen() {
       setIsMagnetometerAvailable(isAvailable);
       
       if (isAvailable) {
-        Magnetometer.setUpdateInterval(100);
+        Magnetometer.setUpdateInterval(200); // Increased interval to reduce jitter
         magnetometerSubscription.current = Magnetometer.addListener((data) => {
           const { x, y, z } = data;
           
@@ -121,16 +127,40 @@ export default function QiblaScreen() {
           // Normalize to 0-360 degrees (0 = North, 90 = East, 180 = South, 270 = West)
           angle = (angle + 360) % 360;
           
-          setHeading(angle);
+          // Apply calibration offset to correct for device-specific magnetic declination
+          // Adjust this value if your device shows incorrect heading
+          const calibrationOffset = -3; // Subtract 3 degrees to correct the offset
+          angle = (angle + calibrationOffset + 360) % 360;
           
-          // Smooth rotation animation with easing
-          // Rotate compass opposite to heading so North marker points to actual north
-          Animated.timing(compassRotation, {
-            toValue: -angle,
-            duration: 100, // Smooth 100ms transition
-            useNativeDriver: true,
-            easing: Easing.out(Easing.cubic), // Smooth deceleration curve
-          }).start();
+          // Apply exponential smoothing (low-pass filter) to reduce jitter
+          // Alpha value controls smoothing: lower = more smoothing, higher = more responsive
+          const alpha = 0.3; // Smoothing factor (0.1-0.5 works well)
+          const currentTime = Date.now();
+          
+          // Calculate shortest angular distance for proper circular smoothing
+          let diff = angle - smoothedHeading.current;
+          if (diff > 180) diff -= 360;
+          if (diff < -180) diff += 360;
+          
+          smoothedHeading.current = (smoothedHeading.current + diff * alpha + 360) % 360;
+          
+          // Only update if enough time has passed or significant change
+          const timeSinceLastUpdate = currentTime - lastHeadingUpdate.current;
+          const angleChange = Math.abs(diff);
+          
+          if (timeSinceLastUpdate > 50 || angleChange > 2) {
+            setHeading(smoothedHeading.current);
+            lastHeadingUpdate.current = currentTime;
+            
+            // Smooth rotation animation with longer duration
+            // Rotate compass opposite to heading so North marker points to actual north
+            Animated.timing(compassRotation, {
+              toValue: -smoothedHeading.current,
+              duration: 300, // Longer duration for smoother animation
+              useNativeDriver: true,
+              easing: Easing.out(Easing.quad), // Smoother easing curve
+            }).start();
+          }
         });
       } else {
         Alert.alert(
@@ -215,10 +245,11 @@ export default function QiblaScreen() {
     
     const aligned = normalizedDiff < 5;
     
-    // Trigger haptic feedback when alignment changes
+    // Trigger haptic only when screen is focused (avoids haptic when navigating away)
     if (aligned && !previousAlignmentRef.current) {
-      // Just became aligned - trigger success haptic
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      if (isFocused) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
       setIsAligned(true);
     } else if (!aligned && previousAlignmentRef.current) {
       // Just lost alignment
@@ -240,25 +271,18 @@ export default function QiblaScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <LinearGradient
-          colors={['#EBF4F5', '#B5C6E0']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={[styles.header, { paddingTop: insets.top + 10 }]}
+      <View style={[styles.container, { backgroundColor: screenBackground }]}>
+        <View
+          style={[styles.header, { backgroundColor: screenBackground, paddingTop: insets.top + 10 }]}
         >
           <TouchableOpacity 
             style={styles.backButton}
             onPress={() => router.back()}
           >
-            <IconSymbol name="chevron.left" size={28} color="#2C3E50" />
-            <Text style={styles.backText}>Back</Text>
+            <IconSymbol name="chevron.left.circle.fill" size={42} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
+            <Text style={[styles.backText, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
           </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>Qibla Direction</Text>
-            <Text style={styles.headerSubtitle}>اتجاه القبلة</Text>
-          </View>
-        </LinearGradient>
+        </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.tint} />
           <Text style={[styles.loadingText, { color: colors.text }]}>
@@ -271,25 +295,18 @@ export default function QiblaScreen() {
 
   if (error) {
     return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <LinearGradient
-          colors={['#EBF4F5', '#B5C6E0']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={[styles.header, { paddingTop: insets.top + 10 }]}
+      <View style={[styles.container, { backgroundColor: screenBackground }]}>
+        <View
+          style={[styles.header, { backgroundColor: screenBackground, paddingTop: insets.top + 10 }]}
         >
           <TouchableOpacity 
             style={styles.backButton}
             onPress={() => router.back()}
           >
-            <IconSymbol name="chevron.left" size={28} color="#2C3E50" />
-            <Text style={styles.backText}>Back</Text>
+            <IconSymbol name="chevron.left.circle.fill" size={42} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
+            <Text style={[styles.backText, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
           </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
-            <Text style={styles.headerTitle}>Qibla Direction</Text>
-            <Text style={styles.headerSubtitle}>اتجاه القبلة</Text>
-          </View>
-        </LinearGradient>
+        </View>
         <View style={styles.errorContainer}>
           <IconSymbol name="exclamationmark.triangle" size={48} color={colors.tint} />
           <Text style={[styles.errorText, { color: colors.text }]}>{error}</Text>
@@ -307,26 +324,19 @@ export default function QiblaScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: screenBackground }]}>
       {/* Header */}
-      <LinearGradient
-        colors={['#EBF4F5', '#B5C6E0']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={[styles.header, { paddingTop: insets.top + 10 }]}
+      <View
+        style={[styles.header, { backgroundColor: screenBackground, paddingTop: insets.top + 10 }]}
       >
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <IconSymbol name="chevron.left" size={28} color="#2C3E50" />
-          <Text style={styles.backText}>Back</Text>
+          <IconSymbol name="chevron.left.circle.fill" size={42} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
+          <Text style={[styles.backText, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
         </TouchableOpacity>
-        <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerTitle}>Qibla Direction</Text>
-          <Text style={styles.headerSubtitle}>اتجاه القبلة</Text>
-        </View>
-      </LinearGradient>
+      </View>
 
       {/* Content */}
       <ScrollView 
@@ -358,6 +368,12 @@ export default function QiblaScreen() {
               </View>
             </>
           )}
+        </View>
+
+        {/* Title Section */}
+        <View style={styles.titleSection}>
+          <Text style={[styles.headerTitle, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Qibla Direction</Text>
+          <Text style={[styles.headerSubtitle, { color: isDarkMode ? '#D9E3F5' : '#1F2937' }]}>اتجاه القبلة</Text>
         </View>
 
         {/* Compass */}
@@ -580,26 +596,27 @@ const styles = StyleSheet.create({
   backText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#2C3E50',
     marginLeft: 5,
   },
   headerTitleContainer: {
     alignItems: 'center',
     marginTop: 2,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#2C3E50',
-    marginBottom: 0,
+  titleSection: {
+    alignItems: 'center',
+    marginBottom: 20,
+    marginTop: 8,
   },
-    headerSubtitle: {
-      fontSize: 20,
-      color: '#000000',
-      fontWeight: 'bold',
-      opacity: 1,
-      fontFamily: Fonts.primary,
-    },
+  headerTitle: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  headerSubtitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    fontFamily: Fonts.primary,
+  },
   content: {
     flex: 1,
   },
@@ -639,10 +656,10 @@ const styles = StyleSheet.create({
     height: 380,
     borderRadius: 190,
     borderWidth: 6,
-    borderTopColor: '#404040',
-    borderLeftColor: '#404040',
-    borderRightColor: '#1a1a1a',
-    borderBottomColor: '#1a1a1a',
+    borderTopColor: '#D4AF37',
+    borderLeftColor: '#D4AF37',
+    borderRightColor: '#B8860B',
+    borderBottomColor: '#B8860B',
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#000000',

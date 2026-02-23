@@ -2,7 +2,7 @@
 
 **Generated:** December 2024  
 **App Name:** Deenify  
-**Bundle ID:** com.anonymous.deenifyapp  
+**Bundle ID:** com.suhelislam.deenifyapp  
 **Version:** 1.0.0 (Build: 1)
 
 ---
@@ -39,44 +39,25 @@
 
 ### 🔴 CRITICAL - Must Fix Before TestFlight
 
-#### 1. **Bundle Identifier Issue**
-**Problem:** Your bundle identifier is `com.anonymous.deenifyapp` which contains "anonymous" - this looks like a placeholder.
+#### 1. **Bundle Identifier Registration**
+**Problem:** Bundle ID must be registered in App Store Connect before submission.
 
-**Why it matters:** Apple may reject apps with placeholder bundle identifiers. Bundle IDs should reflect your actual company/developer name.
+**Current:** `com.suhelislam.deenifyapp` (set in `app.json`)
 
 **Fix Required:**
-- Change bundle identifier to something like:
-  - `com.yourname.deenify` or
-  - `com.yourcompany.deenify` or
-  - `com.deenify.app`
-
-**Where to change:**
-1. In `app.json` (line 28): `"bundleIdentifier": "com.anonymous.deenifyapp"`
-2. In Xcode project: `PRODUCT_BUNDLE_IDENTIFIER = "com.anonymous.deenifyapp"`
-3. App Store Connect: Must match the bundle ID you register
-
-**Note:** Once you change this, you'll need to:
-- Register the new bundle ID in App Store Connect
-- Update all references in code
-- If already built, you may need a new build
+- Register `com.suhelislam.deenifyapp` in App Store Connect
+- Create the app listing using this exact bundle ID
 
 ---
 
 #### 2. **Push Notifications Entitlement (Production)**
-**Problem:** Your `Deenify.entitlements` file has:
-```xml
-<key>aps-environment</key>
-<string>development</string>
-```
+**Status:** Verify on the TestFlight build
 
-**Why it matters:** For TestFlight and App Store distribution, this must be `production`. Development mode only works with development certificates.
+**Why it matters:** For TestFlight and App Store distribution, `aps-environment` must be `production`.
 
-**Fix Required:**
-Change in `ios/Deenify/Deenify.entitlements`:
-```xml
-<key>aps-environment</key>
-<string>production</string>
-```
+**Action:**
+- If using EAS Build, the production profile should set this automatically
+- If using Xcode, confirm `aps-environment` is `production` in the archived build
 
 ---
 
@@ -130,16 +111,9 @@ git push
 ---
 
 #### 5. **EAS Build Configuration**
-**Status:** No `eas.json` file found
+**Status:** `eas.json` is configured
 
-**What this means:** If you're using EAS Build (Expo Application Services), you may need to configure it.
-
-**Fix (if using EAS Build):**
-1. Run: `eas build:configure`
-2. This will create `eas.json` with build profiles
-3. Configure production profile for TestFlight
-
-**If using Xcode directly:** You can skip this, but EAS Build is recommended for Expo apps.
+**Note:** The `production` profile is ready for TestFlight builds.
 
 ---
 
@@ -147,7 +121,7 @@ git push
 
 ### Before Building for TestFlight:
 
-- [ ] **Fix bundle identifier** (Change from "com.anonymous.deenifyapp")
+- [ ] **Register bundle identifier** (`com.suhelislam.deenifyapp`)
 - [ ] **Set aps-environment to "production"** in entitlements
 - [ ] **Host privacy policy** and get URL
 - [ ] **Verify contact email** works and is accessible
@@ -201,17 +175,10 @@ git push
 
 ## 📝 Step-by-Step Fix Guide
 
-### Fix 1: Update Bundle Identifier
+### Fix 1: Register Bundle Identifier
 
-**Option A: If you haven't submitted yet (recommended)**
-1. Choose your new bundle ID (e.g., `com.yourname.deenify`)
-2. Update `app.json` line 28
-3. Update Xcode project (or let Expo handle it)
-4. Register in App Store Connect
-
-**Option B: Keep current but ensure it's registered**
-- If you've already registered `com.anonymous.deenifyapp` in App Store Connect, you can keep it
-- Just make sure it matches exactly
+1. Register `com.suhelislam.deenifyapp` in App Store Connect
+2. Create the app listing with the same bundle ID
 
 ### Fix 2: Update Entitlements (2 minutes)
 
@@ -257,8 +224,8 @@ git push origin main
 **Current Status:** 🟡 Almost Ready with Critical Fixes Needed
 
 **Can submit to TestFlight after fixing:**
-- ✅ Bundle identifier (if you want to change it)
-- ✅ Push notifications entitlement → production
+- ✅ Bundle identifier registered in App Store Connect
+- ✅ Push notifications entitlement verified as `production`
 - ✅ Privacy policy hosting
 - ✅ Contact email verification
 

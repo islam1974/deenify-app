@@ -9,6 +9,7 @@ interface LocationData {
   country: string;
   locality?: string; // Specific neighborhood/district
   sublocality?: string; // More specific area within locality
+  timezone?: string; // IANA timezone (e.g. Asia/Dhaka) for correct local time display
 }
 
 interface LocationContextType {
@@ -62,12 +63,11 @@ export const LocationProvider: React.FC<LocationProviderProps> = ({ children }) 
       const savedLocation = await AsyncStorage.getItem('savedLocation');
       if (savedLocation) {
         const parsed = JSON.parse(savedLocation);
-        // Validate saved location data
-        if (parsed.latitude && parsed.longitude && 
-            parsed.latitude >= -90 && parsed.latitude <= 90 && 
+        if (parsed.latitude != null && parsed.longitude != null &&
+            parsed.latitude >= -90 && parsed.latitude <= 90 &&
             parsed.longitude >= -180 && parsed.longitude <= 180) {
           setLocation(parsed);
-          console.log('📍 Loaded saved location:', parsed);
+          console.log('📍 Loaded location:', parsed);
         } else {
           console.warn('⚠️ Invalid saved location data, will fetch fresh location');
           // Clear invalid location data
@@ -178,20 +178,40 @@ export const LocationProvider: React.FC<LocationProviderProps> = ({ children }) 
       await AsyncStorage.setItem('savedLocation', JSON.stringify(locationData));
     } catch (error: any) {
       console.error('Error getting location:', error);
-      // Provide more specific error messages
-      let errorMessage = 'Failed to get location';
-      if (error?.message) {
-        if (error.message.includes('location services')) {
-          errorMessage = 'Location services are disabled. Please enable them in your device settings.';
-        } else if (error.message.includes('permission')) {
-          errorMessage = 'Location permission is required. Please grant location permission.';
-        } else if (error.message.includes('timeout')) {
-          errorMessage = 'Location request timed out. Please try again.';
-        } else {
-          errorMessage = error.message;
-        }
+
+      let errorMessage = 'Could not obtain current location.';
+      const msg = error?.message ?? '';
+      if (msg.includes('location services')) {
+        errorMessage = 'Location services are disabled. Please enable them in your device settings.';
+      } else if (msg.includes('permission')) {
+        errorMessage = 'Location permission is required. Please grant location permission.';
+      } else if (msg.includes('timeout')) {
+        errorMessage = 'Location request timed out. Please try again.';
+      } else if (msg.includes('kCLError') || msg.includes('Cannot obtain') || msg.includes('error 0')) {
+        errorMessage = 'Location unavailable. Using default (London) for prayer times. You can set a city manually in Settings.';
       }
+
       setError(errorMessage);
+
+      const saved = await AsyncStorage.getItem('savedLocation');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed.latitude != null && parsed.longitude != null) {
+            setLocation(parsed);
+            return;
+          }
+        } catch (_) {}
+      }
+
+      const defaultLocation: LocationData = {
+        latitude: 51.5074,
+        longitude: -0.1278,
+        city: 'London',
+        country: 'United Kingdom',
+      };
+      setLocation(defaultLocation);
+      await AsyncStorage.setItem('savedLocation', JSON.stringify(defaultLocation));
     } finally {
       setIsLoading(false);
     }

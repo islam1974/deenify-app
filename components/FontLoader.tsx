@@ -35,6 +35,11 @@ import {
     ScheherazadeNew_400Regular,
     ScheherazadeNew_700Bold
 } from '@expo-google-fonts/scheherazade-new';
+import {
+    PlayfairDisplay_400Regular,
+    PlayfairDisplay_600SemiBold,
+    PlayfairDisplay_700Bold,
+} from '@expo-google-fonts/playfair-display';
 import { useFonts } from 'expo-font';
 // Removed expo-splash-screen to disable native splash handling
 import React, { useEffect } from 'react';
@@ -71,6 +76,9 @@ export default function FontLoader({ children }: FontLoaderProps) {
     'NotoSansArabic-ExtraBold': NotoSansArabic_800ExtraBold,
     'NotoSansArabic-Black': NotoSansArabic_900Black,
     
+    // Noorehuda / Noore Hidayat (Indo-Pak style - SIL OFL, free for commercial use)
+    'Noorehuda-Regular': require('../assets/fonts/noorehuda.ttf'),
+
     // Cormorant Garamond (Elegant serif font)
     'CormorantGaramond-Light': CormorantGaramond_300Light,
     'CormorantGaramond-LightItalic': CormorantGaramond_300Light_Italic,
@@ -82,6 +90,11 @@ export default function FontLoader({ children }: FontLoaderProps) {
     'CormorantGaramond-SemiBoldItalic': CormorantGaramond_600SemiBold_Italic,
     'CormorantGaramond-Bold': CormorantGaramond_700Bold,
     'CormorantGaramond-BoldItalic': CormorantGaramond_700Bold_Italic,
+
+    // Playfair Display (Elegant serif for headings)
+    'PlayfairDisplay-Regular': PlayfairDisplay_400Regular,
+    'PlayfairDisplay-SemiBold': PlayfairDisplay_600SemiBold,
+    'PlayfairDisplay-Bold': PlayfairDisplay_700Bold,
   });
 
   useEffect(() => {

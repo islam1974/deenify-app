@@ -1,10 +1,11 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 
 export type FontSize = 'small' | 'medium' | 'large' | 'extra-large';
 export type TextDirection = 'rtl' | 'ltr';
+export type ResumeMode = 'read' | 'listen';
 export type QuranFont = 'kfgqpc_uthmani' | 'amiri_quran' | 'scheherazade' | 'me_quran' | 'vazeh_quran';
-export type Reciter = 'alafasy' | 'husary' | 'abdul_basit_mujawwad' | 'salah_al_budair';
+export type Reciter = 'alafasy' | 'husary' | 'abdul_basit_mujawwad';
 export type Translator = 'sahih' | 'asad' | 'pickthall' | 'yusufali' | 'shakir' | 'muhammad' | 'clear' | 'dr_mohsen' | 'khan' | 'maududi' | 'quran_project' | 'sarwar' | 'taqi_usmani' | 'wahiduddin' | 'arabic_muyassar' | 'urdu_jalandhry' | 'french_hamidullah' | 'german_bubenheim' | 'spanish_cortes' | 'turkish_ali' | 'indonesian_bahasa' | 'malay_abdullah' | 'chinese_simplified' | 'japanese_saito' | 'russian_krachkovsky' | 'persian_ansarian' | 'bengali_muhiuddin' | 'bengali_zohurul';
 
 export interface ReciterOption {
@@ -42,6 +43,7 @@ interface QuranSettings {
   selectedReciter: Reciter;
   selectedTranslator: Translator;
   selectedFont: QuranFont; // New setting for Quran font
+  resumeMode: ResumeMode; // 'read' = scroll position, 'listen' = last played verse
 }
 
 interface QuranSettingsContextType {
@@ -58,6 +60,7 @@ interface QuranSettingsContextType {
   updateReciter: (reciter: Reciter) => void;
   updateTranslator: (translator: Translator) => void;
   updateFont: (font: QuranFont) => void; // New method for font selection
+  updateResumeMode: (mode: ResumeMode) => void;
   getReciterOptions: () => ReciterOption[];
   getTranslatorOptions: () => TranslatorOption[];
   getFontOptions: () => QuranFontOption[]; // New method for font options
@@ -74,6 +77,7 @@ const defaultSettings: QuranSettings = {
   selectedReciter: 'alafasy',
   selectedTranslator: 'sahih',
   selectedFont: 'kfgqpc_uthmani', // Default to Noto Naskh Arabic
+  resumeMode: 'read' as ResumeMode, // Default: resume where you left off reading
 };
 
 console.log(`🔧 Default Quran settings:`, defaultSettings);
@@ -100,6 +104,13 @@ export function QuranSettingsProvider({ children }: { children: React.ReactNode 
       if (storedSettings) {
         const parsedSettings = JSON.parse(storedSettings);
         console.log(`✅ Loaded Quran settings:`, parsedSettings);
+        
+        // Migrate: Remove deprecated reciter (salah_al_budair)
+        if (parsedSettings.selectedReciter === 'salah_al_budair') {
+          console.log(`🔄 Migrating deprecated reciter to default (alafasy)`);
+          parsedSettings.selectedReciter = 'alafasy';
+        }
+        
         setSettings({ ...defaultSettings, ...parsedSettings });
       } else {
         console.log(`⚠️ No stored Quran settings found, using defaults`);
@@ -185,6 +196,10 @@ export function QuranSettingsProvider({ children }: { children: React.ReactNode 
     setSettings(prev => ({ ...prev, selectedFont }));
   };
 
+  const updateResumeMode = (resumeMode: ResumeMode) => {
+    setSettings(prev => ({ ...prev, resumeMode }));
+  };
+
   const getReciterOptions = (): ReciterOption[] => [
     // CONFIRMED WORKING RECITERS ONLY
     {
@@ -207,13 +222,6 @@ export function QuranSettingsProvider({ children }: { children: React.ReactNode 
       arabicName: 'عبد الباسط مجود',
       description: 'Classic reciter with melodious style',
       audioUrl: 'https://www.everyayah.com/data/Abdul_Basit_Mujawwad_128kbps/'
-    },
-    {
-      id: 'salah_al_budair',
-      name: 'Salah Al Budair',
-      arabicName: 'صلاح البدير',
-      description: 'Imam of Masjid an-Nabawi, Medina',
-      audioUrl: 'https://www.everyayah.com/data/Salah_Al_Budair_128kbps/'
     }
   ];
 
@@ -467,9 +475,9 @@ export function QuranSettingsProvider({ children }: { children: React.ReactNode 
     },
     {
       id: 'me_quran',
-      name: 'Indo-Pak Nastaliq',
-      description: 'Traditional Indo-Pak style - Popular in South Asia',
-      fontFamily: 'NotoSansArabic-Regular',
+      name: 'Indo-Pak (Noore Hidayat)',
+      description: 'Traditional Indo-Pak Uthmani Kufi style - Popular in South Asia',
+      fontFamily: 'Noorehuda-Regular',
       apiCode: 'quran-simple'
     },
     {
@@ -495,6 +503,7 @@ export function QuranSettingsProvider({ children }: { children: React.ReactNode 
     updateReciter,
     updateTranslator,
     updateFont,
+    updateResumeMode,
     getReciterOptions,
     getTranslatorOptions,
     getFontOptions,

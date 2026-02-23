@@ -1,13 +1,12 @@
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { TouchableOpacity, Text } from 'react-native';
-import { Drawer } from 'expo-router/drawer';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { useTheme } from '@/contexts/ThemeContext';
 import { Colors } from '@/constants/theme';
-import { Dimensions, Platform } from 'react-native';
+import { useTheme } from '@/contexts/ThemeContext';
+import { Drawer } from 'expo-router/drawer';
+import { Dimensions, Platform, Text, TouchableOpacity, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const IS_IPAD = Platform.OS === 'ios' ? Boolean((Platform as any).isPad) : SCREEN_WIDTH >= 768;
+const IS_IPAD = false; // Set true when deploying on iPad
 
 export default function DrawerLayout() {
   const { theme } = useTheme();
@@ -17,16 +16,22 @@ export default function DrawerLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <Drawer
         screenOptions={({ navigation }) => ({
-          drawerActiveBackgroundColor: colors.tint + '20',
-          drawerActiveTintColor: colors.tint,
-          drawerInactiveTintColor: colors.text,
+          drawerActiveBackgroundColor: colors.tint + '30',
+          drawerActiveTintColor: '#FFFFFF',
+          drawerInactiveTintColor: 'rgba(255,255,255,0.85)',
           drawerStyle: {
-            backgroundColor: colors.background,
+            backgroundColor: '#101828',
+          },
+          sceneContainerStyle: {
+            backgroundColor: '#101828',
           },
           headerStyle: {
-            backgroundColor: colors.background,
+            backgroundColor: '#101828',
           },
-          headerTintColor: colors.text,
+          headerBackground: () => (
+            <View style={{ flex: 1, backgroundColor: '#101828' }} />
+          ),
+          headerTintColor: '#FFFFFF',
           headerLeft: () => (
             navigation.canGoBack() ? (
               <TouchableOpacity
@@ -45,12 +50,12 @@ export default function DrawerLayout() {
                 }}
                 activeOpacity={0.7}
               >
-                <IconSymbol name="chevron.left.circle.fill" size={IS_IPAD ? 40 : 32} color={colors.text} />
+                <IconSymbol name="chevron.left.circle.fill" size={IS_IPAD ? 44 : 36} color="#FFFFFF" />
                 <Text
                   style={{
                     fontSize: IS_IPAD ? 22 : 18,
                     fontWeight: '800',
-                    color: colors.text,
+                    color: '#FFFFFF',
                     letterSpacing: 0.3,
                   }}
                 >
@@ -71,12 +76,12 @@ export default function DrawerLayout() {
         })}
       >
         <Drawer.Screen
-          name="index"
+          name="(stack)"
           options={{
             title: 'Home',
             drawerLabel: 'Home',
             drawerIcon: ({ color }) => (
-              <IconSymbol name="house.fill" size={IS_IPAD ? 32 : 28} color={color} />
+              <IconSymbol name="house.fill" size={IS_IPAD ? 36 : 30} color={color} />
             ),
             headerShown: false,
           }}
@@ -87,8 +92,19 @@ export default function DrawerLayout() {
             title: 'Settings',
             drawerLabel: 'Settings',
             drawerIcon: ({ color }) => (
-              <IconSymbol name="gear" size={IS_IPAD ? 32 : 28} color={color} />
+              <IconSymbol name="gear" size={IS_IPAD ? 36 : 30} color={color} />
             ),
+          }}
+        />
+        <Drawer.Screen
+          name="ramadan-tracker"
+          options={{
+            title: 'Ramadan Tracker',
+            drawerLabel: 'Ramadan Tracker',
+            drawerIcon: ({ color }) => (
+              <IconSymbol name="moon.fill" size={IS_IPAD ? 36 : 30} color={color} />
+            ),
+            headerShown: false,
           }}
         />
       </Drawer>
