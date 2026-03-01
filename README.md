@@ -1,10 +1,10 @@
 # Deenify - Your Islamic Companion 🕌
 
-[![Expo](https://img.shields.io/badge/Expo-SDK%2051-blue.svg)](https://expo.dev)
-[![React Native](https://img.shields.io/badge/React%20Native-0.74-green.svg)](https://reactnative.dev)
+[![Expo](https://img.shields.io/badge/Expo-SDK%2054-blue.svg)](https://expo.dev)
+[![React Native](https://img.shields.io/badge/React%20Native-0.81-green.svg)](https://reactnative.dev)
 [![Privacy First](https://img.shields.io/badge/Privacy-First-brightgreen.svg)](./PRIVACY_POLICY.md)
 
-Deenify is a comprehensive Islamic companion app that helps Muslims practice their faith with features for prayer times, Quran reading, Qibla direction, and more.
+Deenify is a comprehensive Islamic companion app that helps Muslims practice their faith. Features include prayer times, Quran reader with audio, Qibla direction, duas, hadith, tasbih counter, mosque finder, Hijri calendar, and Ramadan tracker. The home dashboard shows a new Quran verse on each load.
 
 ## ✨ Features
 
@@ -17,12 +17,14 @@ Deenify is a comprehensive Islamic companion app that helps Muslims practice the
 
 ### 📖 Quran Reader
 - Complete Quran in Arabic with translations
-- Multiple translations (Sahih International, Yusuf Ali, Pickthall, etc.)
-- Audio recitations from renowned reciters
+- Multiple translations (Sahih International, Yusuf Ali, Pickthall, and more)
+- Multiple Arabic fonts (Uthmani, Scheherazade, Amiri, etc.)
+- Audio recitations (Alafasy, Husary, Abdul Basit, and more)
 - Tajweed highlighting
-- Bookmarks and reading progress
+- Reading progress & "Continue reading" / "Where I left off"
 - Adjustable font size and text direction
-- Search functionality
+- Search surahs on Quran landing
+- Themed reading experience (Night Manuscript, Parchment Classic, Emerald Garden)
 
 ### 🧭 Qibla Direction
 - Accurate Qibla compass
@@ -39,14 +41,14 @@ Deenify is a comprehensive Islamic companion app that helps Muslims practice the
 - Find nearby mosques
 - Location-based search
 
-### 📅 Islamic Calendar
-- Hijri date converter
-- Important Islamic dates
+### 📅 Hijri Calendar & Ramadan Tracker
+- Hijri date display
+- Ramadan countdown and tracker
 
 ### 📚 Duas & Hadith
-- Collection of daily duas
+- Daily duas by category (Daily, Travel, Health, Ramadan, etc.)
+- Search duas by keyword
 - Authentic hadith collections
-- Arabic text with translations
 
 ## 🚀 Getting Started
 
@@ -60,7 +62,7 @@ Deenify is a comprehensive Islamic companion app that helps Muslims practice the
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/deenify-app.git
+   git clone https://github.com/islam1974/deenify-app.git
    cd deenify-app
    ```
 
@@ -119,26 +121,29 @@ The app requests the following optional permissions:
 
 ## 🛠️ Tech Stack
 
-- **Framework:** React Native with Expo
+- **Framework:** React Native with Expo SDK 54
 - **Language:** TypeScript
 - **Navigation:** Expo Router
 - **State Management:** React Context API
 - **Storage:** AsyncStorage
-- **APIs:**
-  - Aladhan API (Prayer Times)
-  - Quran.com API (Quran text and audio)
-  - Various hadith APIs
+- **APIs & Data:**
+  - Prayer times (location-based via Adhan library)
+  - [fawazahmed0/quran-api](https://github.com/fawazahmed0/quran-api) (Quran text & translations)
+  - EveryAyah.com (Quran audio recitations)
 
 ## 📁 Project Structure
 
 ```
 deenify-app/
 ├── app/                      # App screens (Expo Router)
-│   ├── (drawer)/            # Drawer navigation screens
-│   ├── privacy-policy.tsx   # Privacy policy screen
-│   ├── prayer-times.tsx
-│   ├── quran.tsx
-│   └── ...
+│   ├── (drawer)/            # Drawer navigation
+│   │   ├── (stack)/         # Stack screens (Home, Quran landing, Quran reader)
+│   │   │   ├── index.tsx    # Dashboard / Home
+│   │   │   ├── quran-landing.tsx
+│   │   │   └── quran.tsx
+│   │   ├── ramadan-tracker.tsx
+│   │   └── settings.tsx
+│   ├── prayer-times.tsx, qibla.tsx, duas.tsx, hadith.tsx, tasbih.tsx
 ├── components/              # Reusable components
 │   ├── QuranReader.tsx
 │   ├── LocationPermissionModal.tsx
@@ -220,16 +225,16 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🙏 Acknowledgments
 
-- **Quran Text & Audio:** Quran.com API
-- **Prayer Times:** Aladhan API
-- **Islamic Content:** Various public Islamic APIs
+- **Quran Text & Translations:** [fawazahmed0/quran-api](https://github.com/fawazahmed0/quran-api) (Unlicense)
+- **Quran Audio:** EveryAyah.com
+- **Prayer Times:** Adhan library
 - **Icons:** SF Symbols (iOS) and Material Icons (Android)
 
 ## 📞 Contact & Support
 
-- **Email:** support@deenify.app
+- **Email:** suhel_islam@yahoo.co.uk
 - **Privacy Questions:** privacy@deenify.app
-- **Issues:** [GitHub Issues](https://github.com/yourusername/deenify-app/issues)
+- **Issues:** [GitHub Issues](https://github.com/islam1974/deenify-app/issues)
 
 ## 🗓️ Roadmap
 
