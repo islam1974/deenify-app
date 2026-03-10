@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Dimensions,
   StatusBar,
+  Platform,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -23,7 +24,7 @@ import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
-const IS_IPAD = false; // Set true when deploying on iPad
+const IS_IPAD = Platform.OS === 'ios' && (Platform.isPad === true || width >= 768);
 
 interface AnimatedSplashScreenProps {
   onAnimationFinish: () => void;
@@ -282,7 +283,7 @@ const styles = StyleSheet.create({
     marginBottom: IS_IPAD ? -80 : width <= 375 ? -30 : width < 410 ? -40 : -50,
   },
   appName: {
-    fontSize: IS_IPAD ? 120 : width <= 375 ? 48 : width < 410 ? 58 : 76,
+    fontSize: IS_IPAD ? 120 : width <= 375 ? 48 : width < 410 ? 58 : width >= 430 ? 60 : 76,
     fontWeight: '900',
     color: '#ffffff',
     textAlign: 'center',

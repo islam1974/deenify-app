@@ -1,12 +1,13 @@
 import type { Track } from 'react-native-track-player';
 import { Audio } from 'expo-av';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
+import { Platform } from 'react-native';
 
 // TrackPlayer is only available in development/standalone builds, not in Expo Go.
-// Only require() when we're certain we're NOT in Expo Go; otherwise the require throws and shows a red box.
+// On Android, TrackPlayer is incompatible with New Architecture (TurboModule); we use expo-av only.
 let trackPlayerModule: typeof import('react-native-track-player') | null = null;
 
-/** Only skip TrackPlayer when we're sure we're in Expo Go (no native module there). */
+/** True when running in Expo Go (no TrackPlayer native module). */
 function isExpoGo(): boolean {
   const ownership = (Constants as { appOwnership?: string }).appOwnership;
   if (ownership === 'expo') return true;
@@ -14,8 +15,15 @@ function isExpoGo(): boolean {
   return false;
 }
 
+/** Use TrackPlayer when not in Expo Go and not on Android (New Arch incompatible). */
+function shouldUseTrackPlayer(): boolean {
+  if (Platform.OS === 'android') return false;
+  if (isExpoGo()) return false;
+  return true;
+}
+
 function getTrackPlayer(): typeof import('react-native-track-player') | null {
-  if (isExpoGo()) return null;
+  if (!shouldUseTrackPlayer()) return null;
   if (trackPlayerModule === null) {
     try {
       trackPlayerModule = require('react-native-track-player');
@@ -382,13 +390,13 @@ class AudioService {
     return chapterId !== 1 && chapterId !== 9;
   }
 
-  async playFullSurah(chapter: any, reciterId?: string) {
+  /** @param startFromVerse - 1-based verse number to resume from (e.g. 5 = start at verse 5). Used for "listen" resume mode. */
+  async playFullSurah(chapter: any, reciterId?: string, startFromVerse?: number) {
     await this.ensureInitialized();
 
     if (!chapter.verses?.length) throw new Error('No verses');
 
     this.currentSurah = chapter;
-    this.currentVerseIndex = 0;
 
     // Build play list: Bismillah (verse 0) first when needed, then verses 1,2,3...
     const needsBismillah = this.needsBismillahBeforeSurah(chapter.id);
@@ -396,10 +404,20 @@ class AudioService {
       ? [{ verseNumber: 0 }, ...chapter.verses.map((v: any) => ({ verseNumber: v.verseNumber }))]
       : chapter.verses.map((v: any) => ({ verseNumber: v.verseNumber }));
 
+    // Find start index when resuming from a specific verse
+    let startIndex = 0;
+    if (startFromVerse != null && startFromVerse >= 1) {
+      const idx = playItems.findIndex(
+        (item) => (item.verseNumber === 0 ? 1 : item.verseNumber) === startFromVerse
+      );
+      if (idx >= 0) startIndex = idx;
+    }
+    this.currentVerseIndex = startIndex;
+
     if (this.useExpoAvFallback) {
       await this.stop();
       this.currentSurah = chapter;
-      this.currentVerseIndex = 0;
+      this.currentVerseIndex = startIndex;
       const playNext = async () => {
         if (!this.currentSurah || this.currentVerseIndex >= playItems.length) {
           this.notifySurahCompletion(chapter.id);
@@ -452,8 +470,11 @@ class AudioService {
         };
       });
       await TrackPlayer.add(tracks);
+      if (startIndex > 0) {
+        await TrackPlayer.skip(startIndex);
+      }
       await TrackPlayer.play();
-      const firstVerse = playItems[0].verseNumber === 0 ? 1 : playItems[0].verseNumber;
+      const firstVerse = (playItems[startIndex]?.verseNumber ?? 0) === 0 ? 1 : (playItems[startIndex]?.verseNumber ?? 1);
       this.state = { ...this.state, isPlaying: true, currentVerse: firstVerse, currentChapter: chapter.id };
       this.notifyListeners();
     } catch (error) {

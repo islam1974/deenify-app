@@ -13,16 +13,17 @@ import QuranService, { Chapter, ChapterWithVerses, Verse } from '@/services/Qura
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, AppState, AppStateStatus, Dimensions, FlatList, NativeScrollEvent, NativeSyntheticEvent, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, AppState, AppStateStatus, Dimensions, FlatList, NativeScrollEvent, NativeSyntheticEvent, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const IS_IPAD = false; // Set true when deploying on iPad
-const IS_SMALL_PHONE = SCREEN_WIDTH < 400;
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const IS_IPAD = Platform.OS === 'ios' && (Platform.isPad === true || SCREEN_WIDTH >= 768);
+const IS_IPAD_11 = IS_IPAD && Math.min(SCREEN_WIDTH, SCREEN_HEIGHT) <= 900;
+const IS_SMALL_PHONE = !IS_IPAD && SCREEN_WIDTH < 400;
 const READING_POSITIONS_KEY = 'quran_reading_positions_v1';
 
 const RUB_EL_HIZB = '\u06DE';
@@ -41,6 +42,7 @@ type BottomTab = 'play' | 'tajweed' | 'fonts';
 
 function QuranScreenContent() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ resumeChapterId?: string; resumeVerse?: string }>();
   const { theme } = useTheme();
   const quranTheme = useQuranTheme();
   const colors = Colors[((theme as 'light' | 'dark') ?? 'light' as 'light' | 'dark') ?? 'light'];
@@ -129,6 +131,7 @@ function QuranScreenContent() {
   const pendingScrollOffsetRef = useRef<number | null>(null); // Apply scroll when list content is ready (e.g. onContentSizeChange)
   const restoreAppliedRef = useRef(false);
   const recordedReadSessionChaptersRef = useRef<Set<number>>(new Set());
+  const lastPlayedVerseRef = useRef<{ chapterId: number; verseNumber: number } | null>(null);
 
   const persistReadingPositions = useCallback(async () => {
     try {
@@ -175,6 +178,165 @@ function QuranScreenContent() {
     return readingPositionsRef.current[String(chapterId)] ?? null;
   }, []);
 
+  const loadChapters = useCallback(async () => {
+    try {
+      setIsLoadingChapters(true);
+      const chaptersData = await QuranService.getChapters();
+      setChapters(chaptersData);
+
+      if (!initialChapterResolved) {
+        const resumeChapterId = params.resumeChapterId ? parseInt(params.resumeChapterId, 10) : undefined;
+        const resumeVerse = params.resumeVerse ? parseInt(params.resumeVerse, 10) : undefined;
+        if (resumeChapterId && !isNaN(resumeChapterId) && resumeVerse && !isNaN(resumeVerse)) {
+          const chapter = chaptersData.find(ch => ch.id === resumeChapterId);
+          if (chapter) {
+            setSelectedChapter(chapter);
+            setInitialChapterResolved(true);
+            setPendingVerseNumber(resumeVerse);
+            setShowResumePopover(true);
+            return;
+          }
+        }
+
+        const savedPositions = Object.values(readingPositionsRef.current);
+        const sortedByRecent = savedPositions.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+        const mostRecent = sortedByRecent[0];
+
+        if (mostRecent) {
+          const savedChapter = chaptersData.find(chapter => chapter.id === mostRecent.chapterId);
+          if (savedChapter) {
+            setSelectedChapter(savedChapter);
+            setInitialChapterResolved(true);
+            setShowResumePopover(true);
+            return;
+          }
+        }
+
+        if (chaptersData.length > 0) {
+          setSelectedChapter(chaptersData[0]);
+          setInitialChapterResolved(true);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading chapters:', error);
+    } finally {
+      setIsLoadingChapters(false);
+    }
+  }, [initialChapterResolved, params.resumeChapterId, params.resumeVerse]);
+
+  const loadChapter = useCallback(async (chapterNumber: number, skipPositionRestore: boolean = false) => {
+    try {
+      setIsLoading(true);
+
+      const chapterData = await QuranService.getChapterWithTranslation(
+        chapterNumber,
+        settings.selectedTranslator,
+        settings.selectedReciter,
+        settings.selectedFont
+      );
+      setCurrentChapter(chapterData);
+
+      const savedPos = getSavedPositionForChapter(chapterNumber);
+      if (savedPos) {
+        QuranEngagementService.recordEvent({ type: 'AYAH_REVISITED', chapterId: chapterNumber });
+      } else {
+        QuranEngagementService.recordEvent({ type: 'AYAH_READ', chapterId: chapterNumber });
+      }
+      if (settings.showTranslation) {
+        QuranEngagementService.recordEvent({ type: 'TRANSLATION_VIEWED', chapterId: chapterNumber });
+      }
+
+      const isRefresh = currentChapter?.id === chapterNumber;
+      const shouldRestore = !skipPositionRestore && (!hasRestoredPosition || isRefresh);
+      if (shouldRestore) {
+        const savedPosition = getSavedPositionForChapter(chapterNumber);
+        const resumeMode = settings.resumeMode ?? 'read';
+        const resumeVerseFromParams = params.resumeVerse ? parseInt(params.resumeVerse, 10) : undefined;
+        const verseToRestore = (resumeMode === 'listen' && savedPosition?.lastPlayedVerse != null)
+          ? savedPosition.lastPlayedVerse
+          : (resumeVerseFromParams && !isNaN(resumeVerseFromParams) && params.resumeChapterId && String(chapterNumber) === params.resumeChapterId)
+            ? resumeVerseFromParams
+            : null;
+        if (verseToRestore != null) {
+          setPendingVerseNumber(verseToRestore);
+          setPendingScrollY(null);
+        } else if (savedPosition && savedPosition.scrollY > 0) {
+          const scrollY = savedPosition.scrollY;
+          restoreAppliedRef.current = false;
+          pendingScrollOffsetRef.current = scrollY;
+          scrollPositionRef.current = scrollY;
+          lastUserScrollYRef.current = scrollY;
+          setPendingScrollY(scrollY);
+          setPendingVerseNumber(null);
+        } else {
+          setPendingScrollY(null);
+          setPendingVerseNumber(null);
+          setHasRestoredPosition(true);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading chapter:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [
+    settings.selectedTranslator,
+    settings.selectedReciter,
+    settings.selectedFont,
+    settings.resumeMode,
+    hasRestoredPosition,
+    currentChapter?.id,
+    getSavedPositionForChapter,
+    params.resumeChapterId,
+    params.resumeVerse,
+  ]);
+
+  const saveReadingPosition = useCallback(async () => {
+    try {
+      const userY = lastUserScrollYRef.current;
+      const scrollY = userY > 0 ? userY : scrollPositionRef.current;
+      if (selectedChapter && scrollY >= 0) {
+        const key = String(selectedChapter.id);
+        // Use currentVerse when playing; when stopped, use lastPlayedVerseRef (AudioService clears currentVerse on stop)
+        let lastPlayedVerse: number | null = null;
+        if (audioState.currentChapter === selectedChapter.id && audioState.currentVerse != null) {
+          lastPlayedVerse = audioState.currentVerse;
+        } else if (lastPlayedVerseRef.current?.chapterId === selectedChapter.id) {
+          lastPlayedVerse = lastPlayedVerseRef.current.verseNumber;
+        } else {
+          lastPlayedVerse = readingPositionsRef.current[key]?.lastPlayedVerse ?? null;
+        }
+        const positionData: ReadingPosition = {
+          chapterId: selectedChapter.id,
+          scrollY,
+          lastPlayedVerse,
+          timestamp: Date.now(),
+          reciter: settings.selectedReciter,
+          translator: settings.selectedTranslator,
+          font: settings.selectedFont,
+        };
+
+        readingPositionsRef.current = {
+          ...readingPositionsRef.current,
+          [key]: positionData,
+        };
+
+        await persistReadingPositions();
+      }
+    } catch (error) {
+      console.error('Error saving reading position:', error);
+    }
+  }, [
+    selectedChapter,
+    audioState.isPlaying,
+    audioState.currentVerse,
+    audioState.currentChapter,
+    settings.selectedReciter,
+    settings.selectedTranslator,
+    settings.selectedFont,
+    persistReadingPositions,
+  ]);
+
   // Load chapters on mount
   useEffect(() => {
     const initialize = async () => {
@@ -187,6 +349,11 @@ function QuranScreenContent() {
     // Set up audio listener
     const unsubscribe = AudioService.addListener((newState) => {
       setAudioState(newState);
+      
+      // Keep lastPlayedVerseRef so we can save it when audio stops (AudioService clears currentVerse on stop)
+      if (newState.currentVerse != null && newState.currentChapter != null) {
+        lastPlayedVerseRef.current = { chapterId: newState.currentChapter, verseNumber: newState.currentVerse };
+      }
       
       // Track played verses per chapter
       if (newState.currentVerse && newState.currentChapter) {
@@ -217,40 +384,27 @@ function QuranScreenContent() {
           const nextChapter = currentChapters[currentChapterIndex + 1];
           console.log('⏭️ Auto-advancing to next chapter:', nextChapter.nameTransliterated);
           
-          // Small delay for smooth transition
-          setTimeout(async () => {
-            try {
-              // Load the next chapter
-              await loadChapter(nextChapter.id, false);
-              setSelectedChapter(nextChapter);
-              
-              // Wait for chapter to load, then start playing
-              setTimeout(async () => {
-                try {
-                  // Get the updated currentChapter after loading
-                  const updatedChapter = await QuranService.getChapterWithTranslation(
-                    nextChapter.id,
-                    settings.selectedTranslator,
-                    settings.selectedReciter,
-                    settings.selectedFont
-                  );
-                  if (updatedChapter && updatedChapter.verses.length > 0) {
-                    console.log('▶️ Auto-playing next chapter:', nextChapter.nameTransliterated);
-                    setIsLoadingAudio(true);
-                    await AudioService.playFullSurah(updatedChapter, settings.selectedReciter);
-                    QuranEngagementService.recordEvent({ type: 'AUDIO_PLAYED', chapterId: nextChapter.id });
-                    setIsLoadingAudio(false);
-                  }
-                } catch (playError) {
-                  console.error('❌ Error auto-playing next chapter:', playError);
-                  setIsLoadingAudio(false);
-                }
-              }, 800); // Increased delay to ensure chapter is fully loaded
-            } catch (loadError) {
-              console.error('❌ Error loading next chapter:', loadError);
+          try {
+            await loadChapter(nextChapter.id, false);
+            setSelectedChapter(nextChapter);
+            
+            const updatedChapter = await QuranService.getChapterWithTranslation(
+              nextChapter.id,
+              settings.selectedTranslator,
+              settings.selectedReciter,
+              settings.selectedFont
+            );
+            if (updatedChapter && updatedChapter.verses.length > 0) {
+              console.log('▶️ Auto-playing next chapter:', nextChapter.nameTransliterated);
+              setIsLoadingAudio(true);
+              await AudioService.playFullSurah(updatedChapter, settings.selectedReciter);
+              QuranEngagementService.recordEvent({ type: 'AUDIO_PLAYED', chapterId: nextChapter.id });
               setIsLoadingAudio(false);
             }
-          }, 500);
+          } catch (loadError) {
+            console.error('❌ Error loading next chapter:', loadError);
+            setIsLoadingAudio(false);
+          }
         } else {
           console.log('🏁 Last chapter reached, no more chapters to play');
         }
@@ -312,19 +466,45 @@ function QuranScreenContent() {
   // Load chapter when selected OR when translator/font changes
   useEffect(() => {
     if (selectedChapter) {
-      const skipPositionRestore = !!currentChapter; // Skip position restore if chapter already loaded
-      loadChapter(selectedChapter.id, skipPositionRestore);
+      loadChapter(selectedChapter.id, false); // Always attempt restore so "where I left off" persists
     }
     
     // Cleanup: stop audio when chapter changes
     return () => {
-      // This will run before the next chapter loads
       const currentState = AudioService.getCurrentState();
       if (currentState.isPlaying && currentState.currentChapter !== selectedChapter?.id) {
         AudioService.stop().catch(err => console.error('Error stopping audio on chapter change:', err));
       }
     };
   }, [selectedChapter?.id, settings.selectedTranslator, settings.selectedFont]);
+
+  const approxVerseHeight = IS_IPAD ? 160 : 130;
+  // When theme changes, restore scroll/verse position (no API call - just scroll to where user left off)
+  useEffect(() => {
+    if (!selectedChapter || !currentChapter?.verses?.length || !flatListRef.current) return;
+    const saved = getSavedPositionForChapter(selectedChapter.id);
+    const resumeMode = settings.resumeMode ?? 'read';
+    if (resumeMode === 'listen' && saved?.lastPlayedVerse != null) {
+      const idx = currentChapter.verses.findIndex((v) => v.verseNumber === saved.lastPlayedVerse);
+      if (idx !== -1) {
+        try {
+          flatListRef.current.scrollToIndex({ index: idx, animated: false, viewPosition: 0.25 });
+        } catch {
+          try {
+            flatListRef.current.scrollToOffset({ offset: idx * approxVerseHeight, animated: false });
+          } catch (_) {}
+        }
+        scrollPositionRef.current = idx * approxVerseHeight;
+        lastUserScrollYRef.current = idx * approxVerseHeight;
+      }
+    } else if (saved?.scrollY != null && saved.scrollY > 0) {
+      try {
+        flatListRef.current.scrollToOffset({ offset: saved.scrollY, animated: false });
+        scrollPositionRef.current = saved.scrollY;
+        lastUserScrollYRef.current = saved.scrollY;
+      } catch (_) {}
+    }
+  }, [quranTheme.themeId, selectedChapter, currentChapter?.verses, settings.resumeMode, getSavedPositionForChapter]);
 
   // Auto-scroll to currently playing verse
   useEffect(() => {
@@ -374,43 +554,6 @@ function QuranScreenContent() {
 
   // Removed scroll handler - player is now always visible
 
-  // Save reading position to AsyncStorage (scrollY from user's physical scroll only, not playback)
-  const saveReadingPosition = useCallback(async () => {
-    try {
-      const userY = lastUserScrollYRef.current;
-      const scrollY = userY > 0 ? userY : scrollPositionRef.current;
-      if (selectedChapter && scrollY >= 0) {
-        const key = String(selectedChapter.id);
-        const positionData: ReadingPosition = {
-          chapterId: selectedChapter.id,
-          scrollY,
-          lastPlayedVerse: audioState.currentVerse ?? null,
-          timestamp: Date.now(),
-          reciter: settings.selectedReciter,
-          translator: settings.selectedTranslator,
-          font: settings.selectedFont,
-        };
-
-        readingPositionsRef.current = {
-          ...readingPositionsRef.current,
-          [key]: positionData,
-        };
-
-        await persistReadingPositions();
-      }
-    } catch (error) {
-      console.error('Error saving reading position:', error);
-    }
-  }, [
-    selectedChapter,
-    audioState.isPlaying,
-    audioState.currentVerse,
-    settings.selectedReciter,
-    settings.selectedTranslator,
-    settings.selectedFont,
-    persistReadingPositions,
-  ]);
-
   // Tap anywhere to toggle bottom tabs (show ↔ hide)
   const toggleBottomTabs = useCallback(() => {
     const nextVisible = !bottomTabsVisibleRef.current;
@@ -459,6 +602,17 @@ function QuranScreenContent() {
     }
   }, [selectedChapter, scrollPosition, audioState.isPlaying, saveReadingPosition]);
 
+  // Save lastPlayedVerse when it changes during playback, and when playback stops (so listen resume works)
+  useEffect(() => {
+    const shouldSave =
+      selectedChapter &&
+      (audioState.currentVerse != null ||
+        (lastPlayedVerseRef.current?.chapterId === selectedChapter.id && !audioState.isPlaying));
+    if (shouldSave) {
+      saveReadingPosition();
+    }
+  }, [selectedChapter, audioState.currentVerse, audioState.isPlaying, saveReadingPosition]);
+
   // Record reading session when user scrolls while reading (meaningful engagement)
   useEffect(() => {
     if (!selectedChapter || audioState.isPlaying || scrollPosition < 100) return;
@@ -484,20 +638,29 @@ function QuranScreenContent() {
       const verseIndex = currentChapter.verses.findIndex(v => v.verseNumber === verseNum);
       if (verseIndex !== -1 && flatListRef.current) {
         const timer = setTimeout(() => {
+          if (!flatListRef.current) return;
           try {
-            flatListRef.current?.scrollToIndex({
+            flatListRef.current.scrollToIndex({
               index: verseIndex,
               animated: false,
               viewPosition: 0.25,
             });
-            const approxY = verseIndex * 120; // Approximate for refs
+            const approxY = verseIndex * approxVerseHeight;
             scrollPositionRef.current = approxY;
             lastUserScrollYRef.current = approxY;
-          } catch (_) {}
+          } catch {
+            // Fallback: use scrollToOffset when scrollToIndex fails (e.g. item not rendered yet)
+            try {
+              const offset = verseIndex * approxVerseHeight;
+              flatListRef.current.scrollToOffset({ offset, animated: false });
+              scrollPositionRef.current = offset;
+              lastUserScrollYRef.current = offset;
+            } catch (_) {}
+          }
           setPendingVerseNumber(null);
           setPendingScrollY(null);
           setHasRestoredPosition(true);
-        }, 350);
+        }, IS_IPAD ? 550 : 450); // Allow time for FlatList to layout, especially on iPad
         return () => clearTimeout(timer);
       }
       setPendingVerseNumber(null);
@@ -507,22 +670,23 @@ function QuranScreenContent() {
     if (scrollY != null && scrollY > 0 && flatListRef.current && currentChapter?.verses?.length) {
       pendingScrollOffsetRef.current = scrollY;
       const verses = currentChapter.verses;
-      const approxVerseHeight = 130;
       const estimatedIndex = Math.min(Math.max(0, Math.floor(scrollY / approxVerseHeight)), verses.length - 1);
+      const delay = IS_IPAD ? 200 : 100;
+      const fallbackDelay = IS_IPAD ? 900 : 600;
       const timer = setTimeout(() => {
         if (flatListRef.current && pendingScrollOffsetRef.current != null && !restoreAppliedRef.current) {
           const offset = pendingScrollOffsetRef.current;
           try {
             flatListRef.current.scrollToOffset({ offset, animated: false });
             restoreAppliedRef.current = true;
+            scrollPositionRef.current = offset;
+            lastUserScrollYRef.current = offset;
+            pendingScrollOffsetRef.current = null;
+            setPendingScrollY(null);
+            setHasRestoredPosition(true);
           } catch (_) {}
-          scrollPositionRef.current = offset;
-          lastUserScrollYRef.current = offset;
-          pendingScrollOffsetRef.current = null;
-          setPendingScrollY(null);
-          setHasRestoredPosition(true);
         }
-      }, 100);
+      }, delay);
       const fallbackTimer = setTimeout(() => {
         if (flatListRef.current && !restoreAppliedRef.current) {
           try {
@@ -536,7 +700,7 @@ function QuranScreenContent() {
           setPendingScrollY(null);
           setHasRestoredPosition(true);
         }
-      }, 600);
+      }, fallbackDelay);
       return () => {
         clearTimeout(timer);
         clearTimeout(fallbackTimer);
@@ -547,98 +711,6 @@ function QuranScreenContent() {
       setHasRestoredPosition(true);
     }
   }, [currentChapter, pendingScrollY, pendingVerseNumber, hasRestoredPosition]);
-
-  const loadChapters = useCallback(async () => {
-    try {
-      setIsLoadingChapters(true);
-      const chaptersData = await QuranService.getChapters();
-      setChapters(chaptersData);
-
-      if (!initialChapterResolved) {
-        const savedPositions = Object.values(readingPositionsRef.current);
-        const sortedByRecent = savedPositions.sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
-        const mostRecent = sortedByRecent[0];
-
-        if (mostRecent) {
-          const savedChapter = chaptersData.find(chapter => chapter.id === mostRecent.chapterId);
-          if (savedChapter) {
-            setSelectedChapter(savedChapter);
-            setInitialChapterResolved(true);
-            setShowResumePopover(true); // Show resume picker when restoring from saved position
-            return;
-          }
-        }
-
-        if (chaptersData.length > 0) {
-          setSelectedChapter(chaptersData[0]);
-          setInitialChapterResolved(true);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading chapters:', error);
-    } finally {
-      setIsLoadingChapters(false);
-    }
-  }, [initialChapterResolved]);
-
-  const loadChapter = useCallback(async (chapterNumber: number, skipPositionRestore: boolean = false) => {
-    try {
-      setIsLoading(true);
-      
-      const chapterData = await QuranService.getChapterWithTranslation(
-        chapterNumber, 
-        settings.selectedTranslator, 
-        settings.selectedReciter, 
-        settings.selectedFont
-      );
-      setCurrentChapter(chapterData);
-
-      // Record engagement events (relationship-based, not time-based)
-      const savedPos = getSavedPositionForChapter(chapterNumber);
-      if (savedPos) {
-        QuranEngagementService.recordEvent({ type: 'AYAH_REVISITED', chapterId: chapterNumber });
-      } else {
-        QuranEngagementService.recordEvent({ type: 'AYAH_READ', chapterId: chapterNumber });
-      }
-      if (settings.showTranslation) {
-        QuranEngagementService.recordEvent({ type: 'TRANSLATION_VIEWED', chapterId: chapterNumber });
-      }
-      
-      // Only try to restore position on initial chapter load
-      if (!skipPositionRestore && !hasRestoredPosition) {
-        const savedPosition = getSavedPositionForChapter(chapterNumber);
-        const resumeMode = settings.resumeMode ?? 'read';
-        if (resumeMode === 'listen' && savedPosition?.lastPlayedVerse != null) {
-          setPendingVerseNumber(savedPosition.lastPlayedVerse);
-          setPendingScrollY(null);
-        } else if (savedPosition && savedPosition.scrollY > 0) {
-          const scrollY = savedPosition.scrollY;
-          restoreAppliedRef.current = false;
-          pendingScrollOffsetRef.current = scrollY;
-          scrollPositionRef.current = scrollY;
-          lastUserScrollYRef.current = scrollY;
-          setPendingScrollY(scrollY);
-          setPendingVerseNumber(null);
-        } else {
-          setPendingScrollY(null);
-          setPendingVerseNumber(null);
-          setHasRestoredPosition(true);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading chapter:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [
-    settings.selectedTranslator,
-    settings.selectedReciter,
-    settings.selectedFont,
-    settings.resumeMode,
-    hasRestoredPosition,
-    getSavedPositionForChapter,
-  ]);
-
 
   const handleChapterSelect = useCallback(async (chapter: Chapter) => {
     try {
@@ -725,6 +797,14 @@ function QuranScreenContent() {
         await AudioService.resume();
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       } else if (currentChapter && currentChapter.verses.length > 0) {
+        const resumeMode = settings.resumeMode ?? 'read';
+        const savedPosition = getSavedPositionForChapter(currentChapter.id);
+        const startFromVerse = (resumeMode === 'listen' && savedPosition?.lastPlayedVerse != null)
+          ? savedPosition.lastPlayedVerse
+          : undefined;
+        if (startFromVerse != null) {
+          console.log('▶️ Resuming from verse', startFromVerse);
+        }
         console.log('🎵 Starting continuous surah playback...');
         console.log('📖 Chapter:', currentChapter.nameTransliterated, `(${currentChapter.verses.length} verses)`);
         console.log('🎙️ Reciter:', settings.selectedReciter);
@@ -732,7 +812,7 @@ function QuranScreenContent() {
         setIsLoadingAudio(true);
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
         
-        await AudioService.playFullSurah(currentChapter, settings.selectedReciter);
+        await AudioService.playFullSurah(currentChapter, settings.selectedReciter, startFromVerse);
         QuranEngagementService.recordEvent({ type: 'AUDIO_PLAYED', chapterId: currentChapter.id });
         console.log('✅ Continuous playback started successfully');
       } else {
@@ -745,7 +825,7 @@ function QuranScreenContent() {
     } finally {
       setIsLoadingAudio(false);
     }
-  }, [currentChapter, settings.selectedReciter]);
+  }, [currentChapter, settings.selectedReciter, settings.resumeMode, getSavedPositionForChapter]);
 
 
   // Auto-scroll functionality using setInterval
@@ -822,7 +902,7 @@ function QuranScreenContent() {
   const fontSizes = useMemo(() => {
     const baseLineHeightArabic = 48;
     const baseLineHeightTranslation = 30;
-    const scale = IS_IPAD ? 3.0 : IS_SMALL_PHONE ? 1.15 : 1.35;
+    const scale = IS_IPAD ? 2.08 : IS_SMALL_PHONE ? 1.15 : 1.35;
     
     switch (settings.fontSize) {
       case 'small':
@@ -937,7 +1017,7 @@ function QuranScreenContent() {
       }
     }
 
-    const verseTextColor = isCurrentVerse ? '#2E7D32' : isPlayedVerse ? '#F57C00' : PAPER_TEXT;
+    const verseTextColor = isCurrentVerse ? ICON_GOLD : isPlayedVerse ? '#F57C00' : PAPER_TEXT;
     
     // Landscape layout: Full width Arabic on top, translation below (optimized for landscape)
     if (isLandscape) {
@@ -964,7 +1044,7 @@ function QuranScreenContent() {
                 <Text style={[
                   styles.verseNumberText,
                   styles.verseNumberTextLandscape,
-                  { color: PAPER_TEXT },
+                  { color: isCurrentVerse ? ICON_GOLD : PAPER_TEXT },
                   isCurrentVerse && styles.verseNumberTextActive,
                   isPlayedVerse && !isCurrentVerse && styles.verseNumberTextPlayed
                 ]}>
@@ -988,7 +1068,7 @@ function QuranScreenContent() {
 
           {/* Full width Arabic text */}
           {bismillahText && (
-            <View style={{ marginBottom: 12 }}>
+            <View style={{ marginBottom: 12, alignSelf: 'stretch', width: '100%' }}>
               <TajweedText
                 text={bismillahText}
                 enableTajweed={settings.enableTajweed}
@@ -1010,7 +1090,7 @@ function QuranScreenContent() {
           )}
 
           {remainingText && (
-            <View style={{ alignSelf: 'stretch' }}>
+            <View style={{ alignSelf: 'stretch', width: '100%' }}>
               <TajweedText
                 text={remainingText}
                 enableTajweed={settings.enableTajweed}
@@ -1033,11 +1113,12 @@ function QuranScreenContent() {
           {/* Full width translation below (only when show translation is on) */}
           {settings.showTranslation && (
             <Text style={[
-              styles.translationText, 
-              { 
-                fontSize: fontSizes.translation * landscapeFontScale,
-                lineHeight: fontSizes.lineHeightTranslation * landscapeFontScale,
-                color: verseTextColor === PAPER_TEXT ? PAPER_TEXT_SECONDARY : verseTextColor
+              styles.translationText,
+              {
+                fontSize: fontSizes.translation * landscapeFontScale * (IS_IPAD ? 0.82 : 1),
+                lineHeight: fontSizes.lineHeightTranslation * landscapeFontScale * (IS_IPAD ? 0.82 : 1),
+                color: verseTextColor === PAPER_TEXT ? PAPER_TEXT_SECONDARY : verseTextColor,
+                ...(IS_IPAD && { opacity: 0.78 }),
               }
             ]}>
               {verse.translation || 'Translation not available'}
@@ -1063,7 +1144,7 @@ function QuranScreenContent() {
               <Text style={[styles.verseRubElHizb, { color: ICON_GOLD }]}>{RUB_EL_HIZB}</Text>
             </View>
             <View style={styles.verseNumberOverlay} pointerEvents="none">
-              <Text style={[styles.verseNumberText, { color: PAPER_TEXT }, isCurrentVerse && styles.verseNumberTextActive, isPlayedVerse && !isCurrentVerse && styles.verseNumberTextPlayed]}>
+              <Text style={[styles.verseNumberText, { color: isCurrentVerse ? ICON_GOLD : PAPER_TEXT }, isCurrentVerse && styles.verseNumberTextActive, isPlayedVerse && !isCurrentVerse && styles.verseNumberTextPlayed]}>
                 {verse.verseNumber}
               </Text>
             </View>
@@ -1092,7 +1173,7 @@ function QuranScreenContent() {
 
         {/* Render Bismillah separately if it exists */}
         {bismillahText && (
-          <View style={{ marginBottom: 16 }}>
+          <View style={{ marginBottom: 16, alignSelf: 'stretch', width: '100%' }}>
             <TajweedText
               text={bismillahText}
               enableTajweed={settings.enableTajweed}
@@ -1115,7 +1196,7 @@ function QuranScreenContent() {
 
         {/* Render remaining text */}
         {remainingText && (
-          <View style={{ alignSelf: 'stretch' }}>
+          <View style={{ alignSelf: 'stretch', width: '100%' }}>
             <TajweedText
               text={remainingText}
               enableTajweed={settings.enableTajweed}
@@ -1137,11 +1218,12 @@ function QuranScreenContent() {
         
         {settings.showTranslation && (
           <Text style={[
-            styles.translationText, 
-            { 
-              fontSize: fontSizes.translation,
-              lineHeight: fontSizes.lineHeightTranslation,
-              color: verseTextColor === PAPER_TEXT ? PAPER_TEXT_SECONDARY : verseTextColor
+            styles.translationText,
+            {
+              fontSize: fontSizes.translation * (IS_IPAD ? 0.82 : 1),
+              lineHeight: fontSizes.lineHeightTranslation * (IS_IPAD ? 0.82 : 1),
+              color: verseTextColor === PAPER_TEXT ? PAPER_TEXT_SECONDARY : verseTextColor,
+              ...(IS_IPAD && { opacity: 0.78 }),
             }
           ]}>
             {verse.translation || 'Translation not available'}
@@ -1158,18 +1240,6 @@ function QuranScreenContent() {
   // FlatList header component
   const renderHeader = useCallback(() => (
     <>
-      {/* Hide header in landscape for more reading space */}
-      {!isLandscape && (
-        <View style={[styles.header, { backgroundColor: 'transparent' }]}>
-          <Text style={[styles.title, { color: PAPER_TEXT }]}>
-            القرآن الكريم
-          </Text>
-          <Text style={[styles.subtitle, { color: PAPER_TEXT_SECONDARY }]}>
-            The Holy Quran
-          </Text>
-        </View>
-      )}
-
       {/* Loading State */}
       {isLoading && (
         <View style={[styles.loadingContainer, { backgroundColor: 'transparent' }]}>
@@ -1195,7 +1265,8 @@ function QuranScreenContent() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={[styles.container, { backgroundColor: PAPER_BG }]}>
-        <GestureDetector style={{ flex: 1 }} gesture={tapGesture}>
+        <GestureDetector gesture={tapGesture}>
+          <View style={{ flex: 1 }}>
           <FlatList
         ref={flatListRef}
         data={currentChapter?.verses || []}
@@ -1203,10 +1274,10 @@ function QuranScreenContent() {
         keyExtractor={keyExtractor}
         ListHeaderComponent={renderHeader}
         contentContainerStyle={{ 
-          paddingTop: isLandscape ? insets.top + 80 : insets.top + 165,
-          paddingBottom: selectedChapter ? (isLandscape ? 120 : 280) : 20,
-          paddingLeft: isLandscape ? Math.max(24, insets.left) : 16,
-          paddingRight: isLandscape ? Math.max(24, insets.right) : 16,
+          paddingTop: isLandscape ? insets.top + 80 : insets.top + (IS_IPAD_11 ? 268 : IS_IPAD ? 185 : 165),
+          paddingBottom: selectedChapter ? (isLandscape ? 120 : IS_IPAD ? 300 : 280) : 20,
+          paddingLeft: isLandscape ? Math.max(24, insets.left) : IS_IPAD ? Math.max(24, (width - 960) / 2) : 12,
+          paddingRight: isLandscape ? Math.max(24, insets.right) : IS_IPAD ? Math.max(24, (width - 960) / 2) : 12,
         }}
         onScroll={handleScroll}
         scrollEventThrottle={16}
@@ -1241,18 +1312,21 @@ function QuranScreenContent() {
           });
         }}
       />
+          </View>
         </GestureDetector>
 
       {/* Sticky Chapter Selector */}
       <View style={[
         styles.stickyChapterSelector, 
         isLandscape && styles.stickyChapterSelectorLandscape,
+        IS_IPAD && styles.stickyChapterSelectorIpad,
+        IS_IPAD_11 && styles.stickyChapterSelectorIpad11,
         { 
           backgroundColor: PAPER_BG,
           borderBottomColor: 'rgba(44,36,22,0.12)',
-          paddingTop: isLandscape ? insets.top + 8 : insets.top + 16,
-          paddingLeft: isLandscape ? Math.max(20, insets.left) : undefined,
-          paddingRight: isLandscape ? Math.max(20, insets.right) : undefined,
+          paddingTop: isLandscape ? insets.top + 8 : insets.top + (IS_IPAD ? 20 : 16),
+          paddingLeft: isLandscape ? Math.max(20, insets.left) : IS_IPAD ? Math.max(24, (width - 960) / 2) : undefined,
+          paddingRight: isLandscape ? Math.max(20, insets.right) : IS_IPAD ? Math.max(24, (width - 960) / 2) : undefined,
         }
       ]}>
         <View style={styles.stickyBackAndDropdown}>
@@ -1263,7 +1337,7 @@ function QuranScreenContent() {
             accessibilityLabel="Back to Quran"
             accessibilityRole="button"
           >
-            <IconSymbol name="chevron.left" size={24} color={PAPER_TEXT} />
+            <IconSymbol name="chevron.left" size={IS_IPAD ? 30 : 28} color={PAPER_TEXT} />
             <Text style={[styles.backToLandingLabel, { color: PAPER_TEXT }]}>Back</Text>
           </TouchableOpacity>
           <View style={styles.stickyDropdownWrap}>
@@ -1279,10 +1353,11 @@ function QuranScreenContent() {
             }}
             placeholder="Select a chapter"
             disabled={isLoadingChapters || isLoading}
-            leftIcon={<Text style={[styles.chapterDropdownIcon, { color: ICON_GOLD }, isLandscape && { fontSize: 32 }]}>{RUB_EL_HIZB}</Text>}
-            buttonStyle={[styles.chapterDropdownButton, { backgroundColor: PAPER_CARD }, isLandscape && styles.chapterDropdownButtonLandscape]}
+            leftIcon={<Text style={[styles.chapterDropdownIcon, { color: ICON_GOLD }, isLandscape && !IS_IPAD && { fontSize: 32 }]}>{RUB_EL_HIZB}</Text>}
+            buttonStyle={[styles.chapterDropdownButton, { backgroundColor: PAPER_CARD }, isLandscape && styles.chapterDropdownButtonLandscape, IS_IPAD && styles.chapterDropdownButtonIpad]}
             triggerTextColor={PAPER_TEXT}
             triggerPlaceholderColor={PAPER_TEXT_SECONDARY}
+            triggerFontSize={IS_IPAD ? 22 : undefined}
             triggerChevronColor={PAPER_TEXT_SECONDARY}
             listBackgroundColor={PAPER_CARD}
             listBorderColor="rgba(255,255,255,0.1)"
@@ -1292,6 +1367,31 @@ function QuranScreenContent() {
             itemBorderColor="rgba(255,255,255,0.08)"
           />
           </View>
+          {selectedChapter && (
+            <TouchableOpacity
+              style={styles.surahOverviewButton}
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push({
+                  pathname: '/(drawer)/(stack)/surah-overview',
+                  params: {
+                    surahNumber: String(selectedChapter.id),
+                    surahNameArabic: selectedChapter.name,
+                    surahNameTransliterated: selectedChapter.nameTransliterated,
+                  },
+                } as any);
+              }}
+              activeOpacity={0.7}
+              accessibilityLabel="Surah Overview"
+              accessibilityRole="button"
+            >
+              <IconSymbol name="doc.text" size={18} color={ICON_GOLD} />
+              <Text style={[styles.surahOverviewButtonText, { color: ICON_GOLD }]}>
+                Surah Overview
+              </Text>
+              <IconSymbol name="chevron.right" size={14} color={ICON_GOLD} />
+            </TouchableOpacity>
+          )}
         </View>
         
         {/* Compact audio controls + progress bar in landscape */}
@@ -1622,6 +1722,13 @@ const styles = StyleSheet.create({
     elevation: 10,
     zIndex: 1000,
   },
+  stickyChapterSelectorIpad: {
+    paddingHorizontal: 40,
+    paddingBottom: 16,
+  },
+  stickyChapterSelectorIpad11: {
+    top: 28,
+  },
   stickyBackAndDropdown: {
     flexDirection: 'column',
     width: '100%',
@@ -1629,18 +1736,31 @@ const styles = StyleSheet.create({
   backToLandingButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
-    paddingRight: 8,
+    paddingVertical: 8,
+    paddingRight: 10,
+    marginTop: 4,
     marginBottom: 8,
-    gap: 4,
+    gap: 6,
     alignSelf: 'flex-start',
   },
   backToLandingLabel: {
-    fontSize: 17,
+    fontSize: IS_IPAD ? 26 : 18,
     fontWeight: '600',
   },
   stickyDropdownWrap: {
     width: '100%',
+  },
+  surahOverviewButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  surahOverviewButtonText: {
+    fontSize: IS_IPAD ? 22 : 15,
+    fontWeight: '600',
   },
   chapterDropdownButton: {
     borderColor: 'rgba(255,255,255,0.1)',
@@ -1653,18 +1773,23 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  chapterDropdownButtonIpad: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    minHeight: 48,
+  },
   chapterDropdownIcon: {
-    fontSize: 32,
+    fontSize: IS_IPAD ? 40 : 32,
     fontFamily: Fonts.primary,
   },
   header: {
-    padding: 16,
+    padding: IS_IPAD ? 24 : 16,
     paddingVertical: 2,
     alignItems: 'center',
     marginTop: 0,
   },
   title: {
-    fontSize: IS_IPAD ? 62 : 36,
+    fontSize: IS_IPAD ? 80 : 36,
     fontWeight: 'bold',
     fontFamily: Fonts.primary,
     marginBottom: 4,
@@ -1672,7 +1797,7 @@ const styles = StyleSheet.create({
     letterSpacing: IS_IPAD ? 1 : 0.5,
   },
   subtitle: {
-    fontSize: IS_IPAD ? 30 : 16,
+    fontSize: IS_IPAD ? 38 : 16,
     fontFamily: Fonts.roboto,
     opacity: 0.7,
     textAlign: 'center',
@@ -1713,13 +1838,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   chapterTitle: {
-    fontSize: IS_IPAD ? 34 : 22,
+    fontSize: IS_IPAD ? 46 : 22,
     fontFamily: Fonts.roboto,
     fontWeight: '900',
     marginBottom: 4,
   },
   chapterSubtitle: {
-    fontSize: IS_IPAD ? 22 : 15,
+    fontSize: IS_IPAD ? 30 : 15,
     fontFamily: Fonts.roboto,
     opacity: 0.9,
     marginBottom: 12,
@@ -1730,37 +1855,40 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 10,
-    fontSize: IS_IPAD ? 20 : 16,
+    fontSize: IS_IPAD ? 28 : 16,
     fontFamily: Fonts.roboto,
   },
   versesContainer: {
-    padding: 12,
+    padding: IS_IPAD ? 20 : 12,
     paddingTop: 10,
     overflow: 'visible',
   },
   verseContainer: {
-    marginBottom: 14,
-    marginHorizontal: 2,
+    marginBottom: IS_IPAD ? 20 : 14,
+    marginHorizontal: 0,
     borderRadius: 24,
     overflow: 'hidden',
     borderWidth: 0,
-    shadowColor: '#2C2416',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 14,
-    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: IS_IPAD ? 28 : 22 },
+    shadowOpacity: IS_IPAD ? 0.65 : 0.58,
+    shadowRadius: IS_IPAD ? 48 : 38,
+    elevation: IS_IPAD ? 28 : 26,
   },
   verseContainerParchment: {
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 20,
-    elevation: 12,
+    shadowColor: '#1a1a0a',
+    shadowOffset: { width: 0, height: IS_IPAD ? 30 : 24 },
+    shadowOpacity: IS_IPAD ? 0.68 : 0.62,
+    shadowRadius: IS_IPAD ? 52 : 44,
+    elevation: IS_IPAD ? 32 : 30,
   },
   verseContainerGradient: {
     paddingTop: 20,
-    paddingHorizontal: 14,
+    paddingHorizontal: 10,
     paddingBottom: 14,
     borderRadius: 24,
+    alignItems: 'stretch',
+    width: '100%',
   },
   verseHeader: {
     flexDirection: 'row',
@@ -1812,7 +1940,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   verseNumberText: {
-    fontSize: 15,
+    fontSize: IS_IPAD ? 18 : 15,
     fontFamily: Fonts.roboto,
     fontWeight: '900',
     textAlign: 'center',
@@ -1821,7 +1949,7 @@ const styles = StyleSheet.create({
     transform: [{ translateY: 5 }],
   },
   verseNumberTextActive: {
-    color: '#2E7D32',
+    fontWeight: '900',
   },
   verseNumberTextPlayed: {
     color: '#E65100',
@@ -1844,25 +1972,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   arabicText: {
-    fontSize: IS_IPAD ? 44 : 30,
+    fontSize: IS_IPAD ? 58 : 30,
     fontFamily: Fonts.primary,
     fontWeight: '900',
     marginTop: 4,
     marginBottom: 8,
-    textAlign: 'right',
+    textAlign: 'center',
     direction: 'rtl',
     includeFontPadding: false,
     paddingTop: 2,
     flexWrap: 'wrap',
+    alignSelf: 'stretch',
     width: '100%',
+    minWidth: '100%',
   },
   translationText: {
     fontSize: IS_IPAD ? 22 : 16,
     fontFamily: Fonts.roboto,
-    opacity: 0.9,
+    opacity: IS_IPAD ? 0.78 : 0.9,
     includeFontPadding: false,
     flexWrap: 'wrap',
     width: '100%',
+    minWidth: '100%',
+    textAlign: 'justify',
+    alignSelf: 'stretch',
   },
   emptyContainer: {
     alignItems: 'center',
@@ -1870,7 +2003,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     marginTop: 16,
-    fontSize: IS_IPAD ? 22 : 16,
+    fontSize: IS_IPAD ? 30 : 16,
     fontFamily: Fonts.roboto,
     textAlign: 'center',
     opacity: 0.7,
@@ -1924,7 +2057,7 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   tabButtonText: {
-    fontSize: IS_IPAD ? 18 : 14,
+    fontSize: IS_IPAD ? 22 : 14,
     fontWeight: '700',
     fontFamily: Fonts.roboto,
   },
@@ -1943,7 +2076,7 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   resumePopoverLabel: {
-    fontSize: 12,
+    fontSize: IS_IPAD ? 15 : 12,
     fontWeight: '600',
     marginBottom: 8,
     opacity: 0.9,
@@ -1962,7 +2095,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   resumePopoverButtonText: {
-    fontSize: 14,
+    fontSize: IS_IPAD ? 17 : 14,
     fontWeight: '600',
     fontFamily: Fonts.roboto,
   },
@@ -1971,7 +2104,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   tabContentTitle: {
-    fontSize: IS_IPAD ? 24 : 18,
+    fontSize: IS_IPAD ? 32 : 18,
     fontFamily: Fonts.roboto,
     fontWeight: '700',
     marginBottom: 12,
@@ -2015,7 +2148,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   speedButtonText: {
-    fontSize: 14,
+    fontSize: IS_IPAD ? 17 : 14,
     fontFamily: Fonts.roboto,
     fontWeight: '600',
   },
@@ -2035,7 +2168,7 @@ const styles = StyleSheet.create({
   },
   scrollActionButtonText: {
     color: 'white',
-    fontSize: IS_IPAD ? 18 : 16,
+    fontSize: IS_IPAD ? 22 : 16,
     fontFamily: Fonts.roboto,
     fontWeight: '700',
     letterSpacing: 0.3,
@@ -2062,12 +2195,12 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   fontPreview: {
-    fontSize: IS_IPAD ? 34 : 24,
+    fontSize: IS_IPAD ? 46 : 24,
     marginBottom: 10,
     textAlign: 'center',
   },
   fontCardName: {
-    fontSize: IS_IPAD ? 16 : 13,
+    fontSize: IS_IPAD ? 20 : 13,
     fontFamily: Fonts.roboto,
     fontWeight: '600',
     textAlign: 'center',

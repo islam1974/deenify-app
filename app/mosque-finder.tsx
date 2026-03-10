@@ -7,7 +7,7 @@ import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Dimensions, Linking, Platform, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import MapView, { Circle, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Circle, Marker, UrlTile } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface Mosque {
@@ -30,7 +30,7 @@ const mosqueCache = new Map<string, { mosques: Mosque[]; timestamp: number }>();
 function getCacheKey(lat: number, lon: number): string {
   return `${lat.toFixed(3)}_${lon.toFixed(3)}`;
 }
-const IS_IPAD = false; // Set true when deploying on iPad
+const IS_IPAD = Platform.OS === 'ios' && (Platform.isPad === true || SCREEN_WIDTH >= 768);
 const IS_SMALL_PHONE = SCREEN_WIDTH < 380;
 
 // Dark map style for better visibility in dark mode
@@ -75,10 +75,7 @@ export default function MosqueFinderScreen() {
   const isSearchingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Clear mosque cache on mount so fresh queries use updated logic (e.g. new Overpass query, radius filter)
-  useEffect(() => {
-    mosqueCache.clear();
-  }, []);
+  // Keep mosque cache across mounts for faster repeat visits; users can pull-to-refresh for fresh data
 
   // Initialize location from context or request fresh location (only once)
   useEffect(() => {
@@ -123,6 +120,32 @@ export default function MosqueFinderScreen() {
     }
   }, [contextError, contextLocation, location]);
 
+  // Android: if location never arrives (e.g. emulator, slow GPS), run one search with fallback coords so the screen isn't stuck
+  const runFallbackLocationSearch = useCallback(() => {
+    const fallbackLat = 51.5074;
+    const fallbackLon = -0.1278;
+    setErrorMsg(null);
+    setLocation({
+      coords: { latitude: fallbackLat, longitude: fallbackLon, altitude: null, accuracy: null, altitudeAccuracy: null, heading: null, speed: null },
+      timestamp: Date.now(),
+    });
+    searchNearbyMosques(fallbackLat, fallbackLon, true);
+    setErrorMsg('Using default location (London). Tap Retry or enable location for your area.');
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const t = setTimeout(() => {
+      if (lastSearchedRef.current != null) return;
+      if (isSearchingRef.current) return;
+      const lat = location?.coords?.latitude ?? contextLocation?.latitude;
+      const lon = location?.coords?.longitude ?? contextLocation?.longitude;
+      if (lat != null && lon != null && (lat !== 0 || lon !== 0)) return;
+      runFallbackLocationSearch();
+    }, 2500);
+    return () => clearTimeout(t);
+  }, []);
+
   const initializeLocation = async () => {
     setErrorMsg(null); // Clear previous error on retry
     try {
@@ -140,26 +163,7 @@ export default function MosqueFinderScreen() {
         return;
       }
 
-      // Prefer device location; accept cached fix (helps when GPS is weak indoors).
-      try {
-        const currentLocation = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-          ...({ maximumAge: 60000 } as any),
-        });
-        const loc = currentLocation.coords;
-        if (loc.latitude != null && loc.longitude != null && Math.abs(loc.latitude) <= 90 && Math.abs(loc.longitude) <= 180) {
-          setErrorMsg(null);
-          setLocation(currentLocation);
-          if (!isSearchingRef.current) {
-            await searchNearbyMosques(loc.latitude, loc.longitude);
-          }
-          return;
-        }
-      } catch (gpsError: any) {
-        console.warn('📍 getCurrentPositionAsync failed, trying context fallback:', gpsError?.message);
-      }
-
-      // Fallback: use context location if valid (e.g. simulator override, or saved from home)
+      // Use context location immediately if available (fast path - no GPS wait)
       if (contextLocation && contextLocation.latitude !== 0 && contextLocation.longitude !== 0) {
         const locationObj: Location.LocationObject = {
           coords: {
@@ -175,18 +179,31 @@ export default function MosqueFinderScreen() {
         };
         setLocation(locationObj);
         if (!isSearchingRef.current) {
-          await searchNearbyMosques(contextLocation.latitude, contextLocation.longitude);
+          searchNearbyMosques(contextLocation.latitude, contextLocation.longitude); // Non-blocking
         }
         return;
       }
 
-      // Context not ready yet: trigger context to fetch (LocationContext will update state when done)
-      // Our useEffect on contextLocation will pick up the result when it arrives
+      // No context: try device GPS (Low accuracy for faster fix)
+      try {
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Low,
+          ...({ maximumAge: 120000 } as any),
+        });
+        const loc = pos.coords;
+        if (loc.latitude != null && loc.longitude != null && Math.abs(loc.latitude) <= 90 && Math.abs(loc.longitude) <= 180) {
+          setErrorMsg(null);
+          setLocation(pos);
+          if (!isSearchingRef.current) {
+            searchNearbyMosques(loc.latitude, loc.longitude);
+          }
+          return;
+        }
+      } catch (_) {}
       if (locationEnabled) {
         await requestLocation();
-        return; // Don't set error - wait for context update; useEffect will set location when ready
+        return;
       }
-
       setErrorMsg('Could not get your location. Please ensure location services are on and try again.');
     } catch (error: any) {
       const msg = error?.message?.toLowerCase() ?? '';
@@ -239,13 +256,20 @@ export default function MosqueFinderScreen() {
       setErrorMsg(null);
 
       const radiusMeters = Math.ceil(RADIUS_MILES * 1609.34);
-      const query = `[out:json][timeout:15];(node["amenity"="place_of_worship"]["religion"~"muslim|islam",i](around:${radiusMeters},${lat},${lon});way["amenity"="place_of_worship"]["religion"~"muslim|islam",i](around:${radiusMeters},${lat},${lon});relation["amenity"="place_of_worship"]["religion"~"muslim|islam",i](around:${radiusMeters},${lat},${lon});node["amenity"="mosque"](around:${radiusMeters},${lat},${lon});way["amenity"="mosque"](around:${radiusMeters},${lat},${lon});node["building"="mosque"](around:${radiusMeters},${lat},${lon});way["building"="mosque"](around:${radiusMeters},${lat},${lon}););out center 200;`;
+      const query = `[out:json][timeout:10];(node["amenity"="place_of_worship"]["religion"~"muslim|islam",i](around:${radiusMeters},${lat},${lon});way["amenity"="place_of_worship"]["religion"~"muslim|islam",i](around:${radiusMeters},${lat},${lon});node["amenity"="mosque"](around:${radiusMeters},${lat},${lon});way["amenity"="mosque"](around:${radiusMeters},${lat},${lon});node["building"="mosque"](around:${radiusMeters},${lat},${lon});way["building"="mosque"](around:${radiusMeters},${lat},${lon}););out center 200;`;
 
       const OVERPASS_URLS = [
-        'https://overpass-api.de/api/interpreter',
         'https://overpass.kumi.systems/api/interpreter',
+        'https://overpass-api.de/api/interpreter',
+        'https://overpass.openstreetmap.ru/api/interpreter',
       ];
-      const FETCH_TIMEOUT_MS = 25000;
+      const FETCH_TIMEOUT_MS = 18000;
+      // Many Overpass servers require a User-Agent; Android can send an empty or blocked one
+      const FETCH_HEADERS: Record<string, string> = {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json',
+        'User-Agent': 'Deenify/1.0 (Islamic companion app; OpenStreetMap Overpass client)',
+      };
 
       let data: any;
       let lastErr: Error | null = null;
@@ -256,7 +280,7 @@ export default function MosqueFinderScreen() {
           const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), FETCH_TIMEOUT_MS);
           const res = await fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            headers: FETCH_HEADERS,
             body: 'data=' + encodeURIComponent(query),
             signal,
           });
@@ -467,15 +491,15 @@ export default function MosqueFinderScreen() {
   if (!location && !errorMsg) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.background }]}>
+        <View style={[styles.header, IS_IPAD && styles.headerIpad, { paddingTop: insets.top + 10, backgroundColor: colors.background }]}>
           <TouchableOpacity 
-            style={styles.backButton}
+            style={[styles.backButton, IS_IPAD && styles.backButtonIpad]}
             onPress={() => router.back()}
           >
-            <IconSymbol name="chevron.left" size={28} color={colors.text} />
+            <IconSymbol name="chevron.left" size={IS_IPAD ? 36 : 28} color={colors.text} />
             <Text style={[styles.backText, { color: colors.text }]}>Back</Text>
           </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
+          <View style={[styles.headerTitleContainer, IS_IPAD && styles.headerTitleContainerIpad]}>
             <Text style={[styles.headerTitle, { color: colors.text }]}>Mosque Finder</Text>
           </View>
         </View>
@@ -484,6 +508,14 @@ export default function MosqueFinderScreen() {
           <Text style={[styles.loadingText, { color: colors.text }]}>
             Getting your location...
           </Text>
+          {Platform.OS === 'android' && (
+            <TouchableOpacity
+              style={[styles.retryButton, { backgroundColor: colors.tint, marginTop: 20 }]}
+              onPress={runFallbackLocationSearch}
+            >
+              <Text style={styles.retryButtonText}>Use default location</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     );
@@ -492,15 +524,15 @@ export default function MosqueFinderScreen() {
   if (errorMsg && !location) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.background }]}>
+        <View style={[styles.header, IS_IPAD && styles.headerIpad, { paddingTop: insets.top + 10, backgroundColor: colors.background }]}>
           <TouchableOpacity 
-            style={styles.backButton}
+            style={[styles.backButton, IS_IPAD && styles.backButtonIpad]}
             onPress={() => router.back()}
           >
-            <IconSymbol name="chevron.left" size={28} color={colors.text} />
+            <IconSymbol name="chevron.left" size={IS_IPAD ? 36 : 28} color={colors.text} />
             <Text style={[styles.backText, { color: colors.text }]}>Back</Text>
           </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
+          <View style={[styles.headerTitleContainer, IS_IPAD && styles.headerTitleContainerIpad]}>
             <Text style={[styles.headerTitle, { color: colors.text }]}>Mosque Finder</Text>
           </View>
         </View>
@@ -518,6 +550,14 @@ export default function MosqueFinderScreen() {
           >
             <Text style={styles.retryButtonText}>Try Again</Text>
           </TouchableOpacity>
+          {Platform.OS === 'android' && (
+            <TouchableOpacity
+              style={[styles.retryButton, { backgroundColor: colors.tint, marginTop: 12 }]}
+              onPress={runFallbackLocationSearch}
+            >
+              <Text style={styles.retryButtonText}>Use default location</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     );
@@ -526,15 +566,15 @@ export default function MosqueFinderScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.background }]}>
+      <View style={[styles.header, IS_IPAD && styles.headerIpad, { paddingTop: insets.top + 10, backgroundColor: colors.background }]}>
         <TouchableOpacity 
-          style={styles.backButton}
+          style={[styles.backButton, IS_IPAD && styles.backButtonIpad]}
           onPress={() => router.back()}
         >
-          <IconSymbol name="chevron.left" size={28} color={colors.text} />
+          <IconSymbol name="chevron.left" size={IS_IPAD ? 36 : 28} color={colors.text} />
           <Text style={[styles.backText, { color: colors.text }]}>Back</Text>
         </TouchableOpacity>
-        <View style={styles.headerTitleContainer}>
+        <View style={[styles.headerTitleContainer, IS_IPAD && styles.headerTitleContainerIpad]}>
           <Text style={[styles.headerTitle, { color: colors.text }]}>Mosque Finder</Text>
           {__DEV__ && <Text style={[styles.bundleHint, { color: colors.text }]}>• latest</Text>}
         </View>
@@ -542,11 +582,11 @@ export default function MosqueFinderScreen() {
 
       {/* Map View */}
       {location && (
-        <View style={styles.mapContainer}>
+        <View style={[styles.mapContainer, IS_IPAD && styles.mapContainerIpad]}>
           <MapView
             ref={mapRef}
             style={styles.map}
-            provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+            mapType={Platform.OS === 'android' ? 'none' : 'standard'}
             initialRegion={{
               latitude: location.coords.latitude,
               longitude: location.coords.longitude,
@@ -557,6 +597,15 @@ export default function MosqueFinderScreen() {
             showsMyLocationButton
             customMapStyle={theme === 'dark' ? darkMapStyle : []}
           >
+            {/* On Android use OSM tiles (no Google API key). iOS uses Apple Maps. */}
+            {Platform.OS === 'android' && (
+              <UrlTile
+                urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                shouldReplaceMapContent
+                maximumZ={19}
+                flipY={false}
+              />
+            )}
             {/* User Location Circle - showing search radius */}
             <Circle
               center={{
@@ -590,10 +639,10 @@ export default function MosqueFinderScreen() {
           {/* Fit to markers button */}
           {mosques.length > 0 && (
             <TouchableOpacity
-              style={[styles.fitButton, { backgroundColor: colors.cardBackground }]}
+              style={[styles.fitButton, IS_IPAD && styles.fitButtonIpad, { backgroundColor: colors.cardBackground }]}
               onPress={fitMapToMarkers}
             >
-              <IconSymbol name="location.viewfinder" size={24} color={colors.tint} />
+              <IconSymbol name="location.viewfinder" size={IS_IPAD ? 32 : 24} color={colors.tint} />
             </TouchableOpacity>
           )}
         </View>
@@ -601,7 +650,8 @@ export default function MosqueFinderScreen() {
 
       <ScrollView 
         ref={scrollRef}
-        style={styles.listContainer}
+        style={[styles.listContainer, IS_IPAD && styles.listContainerIpad]}
+        contentContainerStyle={IS_IPAD ? styles.listContentIpad : undefined}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -648,11 +698,11 @@ export default function MosqueFinderScreen() {
           )
         ) : (
           <>
-            <View style={styles.listHeader}>
-              <Text style={[styles.listHeaderTitle, { color: colors.text }]}>
+            <View style={[styles.listHeader, IS_IPAD && styles.listHeaderIpad]}>
+              <Text style={[styles.listHeaderTitle, IS_IPAD && styles.listHeaderTitleIpad, { color: colors.text }]}>
                 {mosques.length} mosque{mosques.length !== 1 ? 's' : ''} within 5 mi
               </Text>
-              <Text style={[styles.listHeaderSubtitle, { color: colors.text }]}>
+              <Text style={[styles.listHeaderSubtitle, IS_IPAD && styles.listHeaderSubtitleIpad, { color: colors.text }]}>
                 Closest to furthest
               </Text>
             </View>
@@ -661,6 +711,7 @@ export default function MosqueFinderScreen() {
               key={mosque.id}
               style={[
                 styles.mosqueCard,
+                IS_IPAD && styles.mosqueCardIpad,
                 { borderColor: colors.border },
                 selectedMosque?.id === mosque.id && styles.selectedMosqueCard
               ]}
@@ -671,66 +722,66 @@ export default function MosqueFinderScreen() {
                 colors={theme === 'dark' ? ['#363638', '#2A2A2C'] : ['#FFFFFF', '#F0F2F5']}
                 style={styles.mosqueCardGradient}
               >
-              <View style={styles.mosqueCardContent}>
+                <View style={[styles.mosqueCardContent, IS_IPAD && styles.mosqueCardContentIpad]}>
                 <View style={styles.mosqueHeader}>
-                  <View style={[styles.rankBadge, { backgroundColor: colors.tint }]}>
-                    <Text style={styles.rankBadgeText}>{index + 1}</Text>
+                  <View style={[styles.rankBadge, IS_IPAD && styles.rankBadgeIpad, { backgroundColor: colors.tint }]}>
+                    <Text style={[styles.rankBadgeText, IS_IPAD && styles.rankBadgeTextIpad]}>{index + 1}</Text>
                   </View>
                   <View style={styles.mosqueHeaderInfo}>
-                    <Text style={[styles.mosqueName, { color: colors.text }]}>
+                    <Text style={[styles.mosqueName, IS_IPAD && styles.mosqueNameIpad, { color: colors.text }]}>
                       {mosque.name}
                     </Text>
                     <View style={styles.distanceBadge}>
-                      <IconSymbol name="location.fill" size={12} color="#5FC9A3" />
-                      <Text style={[styles.mosqueDistance, { color: '#5FC9A3' }]}>
+                      <IconSymbol name="location.fill" size={IS_IPAD ? 18 : 12} color="#5FC9A3" />
+                      <Text style={[styles.mosqueDistance, IS_IPAD && styles.mosqueDistanceIpad, { color: '#5FC9A3' }]}>
                         {mosque.distance.toFixed(1)} mi
                       </Text>
                     </View>
                   </View>
                 </View>
 
-                <Text style={[styles.mosqueAddress, { color: colors.text }]}>
+                <Text style={[styles.mosqueAddress, IS_IPAD && styles.mosqueAddressIpad, { color: colors.text }]}>
                   {mosque.address}
                 </Text>
 
-                <View style={styles.actionButtons}>
+                <View style={[styles.actionButtons, IS_IPAD && styles.actionButtonsIpad]}>
                   <TouchableOpacity
-                    style={[styles.actionButton, { backgroundColor: colors.tint }]}
+                    style={[styles.actionButton, IS_IPAD && styles.actionButtonIpad, { backgroundColor: colors.tint }]}
                     onPress={(e) => {
                       e.stopPropagation();
                       openInMaps(mosque);
                     }}
                     activeOpacity={0.7}
                   >
-                    <IconSymbol name="map.fill" size={18} color="#FFFFFF" />
-                    <Text style={styles.actionButtonText}>Directions</Text>
+                    <IconSymbol name="map.fill" size={IS_IPAD ? 24 : 18} color="#FFFFFF" />
+                    <Text style={[styles.actionButtonText, IS_IPAD && styles.actionButtonTextIpad]}>Directions</Text>
                   </TouchableOpacity>
 
                   {mosque.phone && (
                     <TouchableOpacity
-                      style={[styles.actionButton, styles.actionButtonSecondary, { borderColor: colors.border }]}
+                      style={[styles.actionButton, styles.actionButtonSecondary, IS_IPAD && styles.actionButtonIpad, { borderColor: colors.border }]}
                       onPress={(e) => {
                         e.stopPropagation();
                         callMosque(mosque.phone!);
                       }}
                       activeOpacity={0.7}
                     >
-                      <IconSymbol name="phone.fill" size={18} color={colors.text} />
-                      <Text style={[styles.actionButtonTextSecondary, { color: colors.text }]}>Call</Text>
+                      <IconSymbol name="phone.fill" size={IS_IPAD ? 24 : 18} color={colors.text} />
+                      <Text style={[styles.actionButtonTextSecondary, IS_IPAD && styles.actionButtonTextSecondaryIpad, { color: colors.text }]}>Call</Text>
                     </TouchableOpacity>
                   )}
 
                   {mosque.website && (
                     <TouchableOpacity
-                      style={[styles.actionButton, styles.actionButtonSecondary, { borderColor: colors.border }]}
+                      style={[styles.actionButton, styles.actionButtonSecondary, IS_IPAD && styles.actionButtonIpad, { borderColor: colors.border }]}
                       onPress={(e) => {
                         e.stopPropagation();
                         openWebsite(mosque.website!);
                       }}
                       activeOpacity={0.7}
                     >
-                      <IconSymbol name="globe" size={18} color={colors.text} />
-                      <Text style={[styles.actionButtonTextSecondary, { color: colors.text }]}>Website</Text>
+                      <IconSymbol name="globe" size={IS_IPAD ? 24 : 18} color={colors.text} />
+                      <Text style={[styles.actionButtonTextSecondary, IS_IPAD && styles.actionButtonTextSecondaryIpad, { color: colors.text }]}>Website</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -767,10 +818,17 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  headerIpad: {
+    paddingBottom: 12,
+    paddingHorizontal: 28,
+  },
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 0,
+  },
+  backButtonIpad: {
+    marginTop: 8,
   },
   backText: {
     fontSize: IS_IPAD ? 22 : IS_SMALL_PHONE ? 16 : 18,
@@ -780,6 +838,9 @@ const styles = StyleSheet.create({
   headerTitleContainer: {
     alignItems: 'center',
     marginTop: 16,
+  },
+  headerTitleContainerIpad: {
+    marginTop: 20,
   },
   headerTitle: {
     fontSize: IS_IPAD ? 44 : IS_SMALL_PHONE ? 26 : 32,
@@ -820,14 +881,25 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     paddingHorizontal: 4,
   },
+  listHeaderIpad: {
+    marginBottom: 20,
+    paddingHorizontal: 8,
+  },
   listHeaderTitle: {
     fontSize: 17,
     fontWeight: '700',
+  },
+  listHeaderTitleIpad: {
+    fontSize: 24,
   },
   listHeaderSubtitle: {
     fontSize: 13,
     opacity: 0.75,
     marginTop: 2,
+  },
+  listHeaderSubtitleIpad: {
+    fontSize: 18,
+    marginTop: 4,
   },
   attributionContainer: {
     paddingVertical: 16,
@@ -846,10 +918,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 12,
   },
+  rankBadgeIpad: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    marginRight: 16,
+  },
   rankBadgeText: {
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '800',
+  },
+  rankBadgeTextIpad: {
+    fontSize: 18,
   },
   mapContainer: {
     height: 200,
@@ -861,6 +942,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 8,
     elevation: 5,
+  },
+  mapContainerIpad: {
+    height: 320,
+    margin: 24,
+    borderRadius: 20,
   },
   map: {
     flex: 1,
@@ -904,9 +990,24 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 5,
   },
+  fitButtonIpad: {
+    bottom: 20,
+    right: 20,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+  },
   listContainer: {
     flex: 1,
     padding: 16,
+  },
+  listContainerIpad: {
+    padding: 28,
+  },
+  listContentIpad: {
+    maxWidth: 900,
+    alignSelf: 'center',
+    width: '100%',
   },
   mosqueCard: {
     borderRadius: 16,
@@ -918,6 +1019,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 8,
+  },
+  mosqueCardIpad: {
+    borderRadius: 20,
+    marginBottom: 22,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.35,
+    shadowRadius: 24,
+    elevation: 20,
   },
   mosqueCardGradient: {
     flex: 1,
@@ -934,6 +1043,9 @@ const styles = StyleSheet.create({
   mosqueCardContent: {
     padding: 16,
   },
+  mosqueCardContentIpad: {
+    padding: 24,
+  },
   mosqueHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -948,6 +1060,11 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     lineHeight: 24,
   },
+  mosqueNameIpad: {
+    fontSize: 24,
+    marginBottom: 8,
+    lineHeight: 30,
+  },
   distanceBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -957,16 +1074,27 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  mosqueDistanceIpad: {
+    fontSize: 18,
+  },
   mosqueAddress: {
     fontSize: 14,
     opacity: 0.7,
     lineHeight: 20,
     marginBottom: 16,
   },
+  mosqueAddressIpad: {
+    fontSize: 19,
+    lineHeight: 26,
+    marginBottom: 20,
+  },
   actionButtons: {
     flexDirection: 'row',
     gap: 8,
     flexWrap: 'wrap',
+  },
+  actionButtonsIpad: {
+    gap: 12,
   },
   actionButton: {
     flexDirection: 'row',
@@ -979,6 +1107,13 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 100,
   },
+  actionButtonIpad: {
+    paddingVertical: 14,
+    paddingHorizontal: 22,
+    borderRadius: 14,
+    gap: 8,
+    minWidth: 120,
+  },
   actionButtonSecondary: {
     backgroundColor: 'transparent',
     borderWidth: 1.5,
@@ -988,9 +1123,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  actionButtonTextIpad: {
+    fontSize: 18,
+  },
   actionButtonTextSecondary: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  actionButtonTextSecondaryIpad: {
+    fontSize: 18,
   },
   centerContent: {
     flex: 1,

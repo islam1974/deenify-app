@@ -567,8 +567,13 @@ export class PrayerTimesService {
   }
 
   private static formatTime(timeString: string): string {
-    // Convert from 24-hour format to 12-hour format
-    const [hours, minutes] = timeString.split(':').map(Number);
+    if (!timeString || typeof timeString !== 'string') return '--:-- --';
+    const parts = timeString.split(':').map(Number);
+    let hours = Math.floor(parts[0] ?? 0);
+    let minutes = Math.floor(parts[1] ?? 0);
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) return '--:-- --';
+    hours = Math.max(0, Math.min(23, hours));
+    minutes = Math.max(0, Math.min(59, minutes));
     const period = hours >= 12 ? 'PM' : 'AM';
     const displayHours = hours % 12 || 12;
     return `${displayHours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${period}`;

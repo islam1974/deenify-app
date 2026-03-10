@@ -1,20 +1,20 @@
 import LocationWrapper from '@/components/LocationWrapper';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Fonts } from '@/constants/theme';
 import { useLocation } from '@/contexts/LocationContext';
 import { usePrayerNotifications } from '@/contexts/PrayerNotificationContext';
 import { usePrayerSettings } from '@/contexts/PrayerSettingsContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { PrayerTimesService } from '@/services/PrayerTimesService';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Dimensions, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const IS_IPAD = false; // Set true when deploying on iPad
-const IS_SMALL_PHONE = SCREEN_WIDTH < 400;
+const IS_IPAD = Platform.OS === 'ios' && (Platform.isPad === true || SCREEN_WIDTH >= 768);
+const IS_SMALL_PHONE = !IS_IPAD && SCREEN_WIDTH < 400;
 
 interface PrayerTime {
   name: string;
@@ -340,13 +340,13 @@ function PrayerTimesContent() {
   return (
     <View style={[styles.container, { backgroundColor: '#070d1b' }]}>
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 2 }]}>
+      <View style={[styles.header, { paddingTop: insets.top + (IS_IPAD ? 10 : 16) }]}>
         <View style={styles.headerTopRow}>
           <TouchableOpacity 
             style={styles.backButton}
             onPress={() => router.back()}
           >
-            <IconSymbol name="chevron.left" size={IS_IPAD ? 40 : 32} color="#FFFFFF" />
+            <IconSymbol name="chevron.left" size={IS_IPAD ? 48 : 40} color="#FFFFFF" />
             <Text style={styles.backText}>Back</Text>
           </TouchableOpacity>
           <TouchableOpacity 
@@ -407,7 +407,7 @@ function PrayerTimesContent() {
         {/* Simple Location and Calculation Method Info */}
         <View style={[styles.simpleInfoCard, { backgroundColor: '#252560', borderColor: colors.border }]}>
           <View style={styles.simpleInfoRow}>
-            <IconSymbol name="location.fill" size={IS_IPAD ? 18 : 15} color="rgba(255,255,255,0.92)" />
+            <IconSymbol name="location.fill" size={IS_IPAD ? 24 : 15} color="rgba(255,255,255,0.92)" />
             <Text style={[styles.simpleInfoText, { color: 'rgba(255,255,255,0.92)' }]}>
               {location ? (
                 location.city && location.city !== 'Unknown City'
@@ -419,7 +419,7 @@ function PrayerTimesContent() {
             </Text>
           </View>
           <View style={styles.simpleInfoRow}>
-            <IconSymbol name="clock.fill" size={IS_IPAD ? 18 : 15} color="rgba(255,255,255,0.92)" />
+            <IconSymbol name="clock.fill" size={IS_IPAD ? 24 : 15} color="rgba(255,255,255,0.92)" />
             <Text style={[styles.simpleInfoText, { color: 'rgba(255,255,255,0.92)' }]}>
               {getCalculationMethodInfo(prayerSettings.calculationMethod).name}
             </Text>
@@ -579,20 +579,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    paddingBottom: 6,
-    paddingHorizontal: 15,
+    paddingBottom: IS_IPAD ? 12 : 6,
+    paddingHorizontal: IS_IPAD ? 24 : 15,
     backgroundColor: 'transparent',
   },
   headerTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 2,
+    marginBottom: IS_IPAD ? 8 : 2,
   },
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: IS_IPAD ? 12 : 8,
+    paddingVertical: IS_IPAD ? 14 : 10,
   },
   refreshButton: {
     padding: IS_IPAD ? 12 : 10,
@@ -603,17 +603,17 @@ const styles = StyleSheet.create({
     marginTop: IS_IPAD ? 12 : 8,
   },
   backText: {
-    fontSize: IS_IPAD ? 18 : 14,
+    fontSize: IS_IPAD ? 24 : 19,
     fontWeight: '600',
     color: '#FFFFFF',
     marginLeft: 3,
   },
   headerTitleContainer: {
     alignItems: 'center',
-    marginTop: 0,
+    marginTop: IS_IPAD ? 8 : 0,
   },
   headerTitle: {
-    fontSize: IS_IPAD ? 56 : 40,
+    fontSize: IS_IPAD ? 48 : 40,
     fontFamily: Fonts.secondary,
     fontWeight: '900',
     color: '#FFFFFF',
@@ -621,30 +621,31 @@ const styles = StyleSheet.create({
     letterSpacing: IS_IPAD ? 1.5 : 1,
   },
   headerSubtitle: {
-    fontSize: IS_IPAD ? 24 : 18,
+    fontSize: IS_IPAD ? 22 : 18,
     color: '#FFFFFF',
     opacity: 0.85,
     fontWeight: '700',
   },
   content: {
     flex: 1,
-    padding: IS_IPAD ? 24 : 16,
-    maxWidth: IS_IPAD ? 900 : undefined,
+    padding: IS_IPAD ? 32 : 16,
+    paddingBottom: IS_IPAD ? 24 : 16,
+    maxWidth: IS_IPAD ? 720 : undefined,
     alignSelf: IS_IPAD ? 'center' : 'auto',
-    width: IS_IPAD ? '90%' : undefined,
+    width: IS_IPAD ? '100%' : undefined,
     backgroundColor: '#070d1b',
   },
   dateNavigation: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: IS_IPAD ? 24 : 16,
-    paddingHorizontal: 8,
+    marginBottom: IS_IPAD ? 20 : 16,
+    paddingHorizontal: IS_IPAD ? 8 : 8,
   },
   navButton: {
-    width: IS_IPAD ? 68 : 52,
-    height: IS_IPAD ? 68 : 52,
-    borderRadius: IS_IPAD ? 34 : 26,
+    width: IS_IPAD ? 56 : 52,
+    height: IS_IPAD ? 56 : 52,
+    borderRadius: IS_IPAD ? 28 : 26,
     backgroundColor: 'rgba(255, 255, 255, 0.35)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -660,10 +661,10 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginHorizontal: 16,
+    marginHorizontal: IS_IPAD ? 24 : 16,
   },
   dateText: {
-    fontSize: IS_IPAD ? 24 : 18,
+    fontSize: IS_IPAD ? 26 : 18,
     fontWeight: 'bold',
     color: '#FFFFFF',
     marginBottom: 4,
@@ -676,14 +677,14 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   todayButtonText: {
-    fontSize: IS_IPAD ? 16 : 12,
+    fontSize: IS_IPAD ? 18 : 12,
     fontWeight: '600',
     color: '#FFFFFF',
   },
   simpleInfoCard: {
-    borderRadius: IS_IPAD ? 22 : 18,
+    borderRadius: IS_IPAD ? 18 : 18,
     borderWidth: 0,
-    padding: IS_IPAD ? 10 : 8,
+    padding: IS_IPAD ? 16 : 8,
     marginBottom: IS_IPAD ? 16 : 14,
     shadowColor: '#000',
     shadowOffset: {
@@ -697,11 +698,11 @@ const styles = StyleSheet.create({
   simpleInfoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: IS_IPAD ? 4 : 3,
+    marginBottom: IS_IPAD ? 8 : 3,
   },
   simpleInfoText: {
-    fontSize: IS_IPAD ? 14 : IS_SMALL_PHONE ? 11 : 12,
-    marginLeft: 6,
+    fontSize: IS_IPAD ? 22 : IS_SMALL_PHONE ? 11 : 12,
+    marginLeft: IS_IPAD ? 12 : 6,
     flex: 1,
     fontWeight: '500',
   },
@@ -725,13 +726,13 @@ const styles = StyleSheet.create({
     marginBottom: IS_IPAD ? 12 : 8,
   },
   infoText: {
-    fontSize: IS_IPAD ? 22 : IS_SMALL_PHONE ? 15 : 17,
+    fontSize: IS_IPAD ? 24 : IS_SMALL_PHONE ? 15 : 17,
     marginLeft: 8,
     flex: 1,
   },
   nextPrayerCard: {
-    borderRadius: IS_IPAD ? 24 : 20,
-    padding: IS_IPAD ? 24 : 22,
+    borderRadius: IS_IPAD ? 18 : 20,
+    padding: IS_IPAD ? 20 : 22,
     minHeight: IS_IPAD ? 140 : 120,
     marginBottom: IS_IPAD ? 16 : 14,
     borderWidth: 0,
@@ -745,10 +746,10 @@ const styles = StyleSheet.create({
     elevation: 30,
   },
   nextPrayerLabel: {
-    fontSize: IS_IPAD ? 22 : 16,
+    fontSize: IS_IPAD ? 24 : 16,
     fontFamily: Fonts.secondary,
     fontWeight: '800',
-    marginBottom: 10,
+    marginBottom: IS_IPAD ? 10 : 10,
     opacity: 0.95,
   },
   nextPrayerInfo: {
@@ -757,36 +758,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   nextPrayerName: {
-    fontSize: IS_IPAD ? 34 : 26,
+    fontSize: IS_IPAD ? 30 : 26,
     fontFamily: Fonts.secondary,
     fontWeight: '900',
     marginBottom: 5,
   },
   nextPrayerArabic: {
-    fontSize: IS_IPAD ? 30 : 20,
+    fontSize: IS_IPAD ? 26 : 20,
     fontFamily: Fonts.primary,
   },
   nextPrayerTimeContainer: {
     alignItems: 'flex-end',
   },
   nextPrayerTime: {
-    fontSize: IS_IPAD ? 44 : 34,
+    fontSize: IS_IPAD ? 38 : 34,
     fontFamily: Fonts.secondary,
     fontWeight: '900',
   },
   timeRemaining: {
-    fontSize: IS_IPAD ? 17 : 13,
+    fontSize: IS_IPAD ? 18 : 13,
     marginTop: 3,
     opacity: 0.82,
     fontFamily: Fonts.secondary,
     fontWeight: '600',
   },
   prayerTimesCard: {
-    borderRadius: IS_IPAD ? 28 : 24,
+    borderRadius: IS_IPAD ? 20 : 24,
     overflow: 'hidden',
     borderWidth: 0,
-    padding: IS_IPAD ? 18 : 12,
-    marginBottom: IS_IPAD ? 16 : 14,
+    padding: IS_IPAD ? 16 : 12,
+    paddingTop: IS_IPAD ? 16 : 12,
+    paddingBottom: IS_IPAD ? 16 : 12,
+    marginBottom: IS_IPAD ? 20 : 14,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -797,37 +800,37 @@ const styles = StyleSheet.create({
     elevation: 30,
   },
   cardTitle: {
-    fontSize: IS_IPAD ? 32 : 20,
+    fontSize: IS_IPAD ? 30 : 20,
     fontFamily: Fonts.secondary,
     fontWeight: '900',
-    marginBottom: IS_IPAD ? 16 : 14,
+    marginBottom: IS_IPAD ? 14 : 14,
     color: '#FFFFFF',
   },
   prayerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: IS_IPAD ? 13 : 11,
+    paddingVertical: IS_IPAD ? 12 : 11,
     borderBottomWidth: 1,
   },
   prayerRowNext: {
     backgroundColor: 'rgba(255, 255, 255, 0.12)',
-    borderLeftWidth: 4,
+    borderLeftWidth: IS_IPAD ? 6 : 4,
     borderLeftColor: '#4CAF50',
-    paddingLeft: 10,
+    paddingLeft: IS_IPAD ? 16 : 10,
   },
   prayerNameContainer: {
     flex: 1,
   },
   prayerName: {
-    fontSize: IS_IPAD ? 30 : 20,
+    fontSize: IS_IPAD ? 26 : 20,
     fontFamily: Fonts.secondary,
     fontWeight: '800',
     marginBottom: 2,
     color: '#FFFFFF',
   },
   prayerArabic: {
-    fontSize: IS_IPAD ? 26 : 18,
+    fontSize: IS_IPAD ? 22 : 18,
     fontFamily: Fonts.primary,
     opacity: 0.9,
     color: '#FFFFFF',
@@ -836,10 +839,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   prayerTime: {
-    fontSize: IS_IPAD ? 28 : 20,
+    fontSize: IS_IPAD ? 24 : 20,
     fontFamily: Fonts.secondary,
     fontWeight: '800',
-    marginBottom: IS_IPAD ? 5 : 4,
+    marginBottom: IS_IPAD ? 3 : 4,
     color: '#FFFFFF',
   },
   azanToggleContainer: {
@@ -848,7 +851,7 @@ const styles = StyleSheet.create({
     gap: IS_IPAD ? 10 : 8,
   },
   azanLabel: {
-    fontSize: IS_IPAD ? 18 : 14,
+    fontSize: IS_IPAD ? 17 : 14,
     fontWeight: '600',
     opacity: 0.9,
     color: '#FFFFFF',
@@ -896,7 +899,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 12,
-    fontSize: IS_IPAD ? 18 : 14,
+    fontSize: IS_IPAD ? 20 : 14,
   },
   errorContainer: {
     alignItems: 'center',
@@ -905,20 +908,20 @@ const styles = StyleSheet.create({
   },
   errorText: {
     marginTop: 12,
-    fontSize: IS_IPAD ? 18 : 14,
+    fontSize: IS_IPAD ? 20 : 14,
     textAlign: 'center',
   },
   disclaimerTrigger: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 16,
-    marginHorizontal: 4,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    gap: IS_IPAD ? 10 : 8,
+    marginBottom: IS_IPAD ? 12 : 16,
+    marginHorizontal: IS_IPAD ? 4 : 4,
+    paddingVertical: IS_IPAD ? 8 : 10,
+    paddingHorizontal: IS_IPAD ? 12 : 14,
   },
   disclaimerTriggerText: {
-    fontSize: IS_IPAD ? 15 : 13,
+    fontSize: IS_IPAD ? 17 : 13,
     color: 'rgba(255,255,255,0.8)',
     fontWeight: '500',
   },
@@ -945,12 +948,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   disclaimerModalTitle: {
-    fontSize: IS_IPAD ? 22 : 18,
+    fontSize: IS_IPAD ? 24 : 18,
     fontWeight: '700',
     color: '#FFFFFF',
   },
   disclaimerModalText: {
-    fontSize: IS_IPAD ? 16 : 14,
+    fontSize: IS_IPAD ? 18 : 14,
     lineHeight: IS_IPAD ? 24 : 22,
     color: 'rgba(255,255,255,0.9)',
     marginBottom: 24,
@@ -962,7 +965,7 @@ const styles = StyleSheet.create({
   },
   disclaimerModalButtonText: {
     color: '#FFFFFF',
-    fontSize: IS_IPAD ? 17 : 15,
+    fontSize: IS_IPAD ? 19 : 15,
     fontWeight: '600',
   },
 });

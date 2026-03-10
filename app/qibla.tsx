@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Animated, Easing, Platform, ActivityIndicator, Alert, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Animated, Easing, ActivityIndicator, Alert, ScrollView, Platform, Dimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -11,6 +11,13 @@ import { useLocation } from '@/contexts/LocationContext';
 import * as Location from 'expo-location';
 import { Magnetometer } from 'expo-sensors';
 import * as Haptics from 'expo-haptics';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const IS_IPAD = Platform.OS === 'ios' && (Platform.isPad === true || SCREEN_WIDTH >= 768);
+const IS_IPHONE_SE = !IS_IPAD && SCREEN_WIDTH <= 375;
+const COMPASS_SIZE = IS_IPAD ? 620 : IS_IPHONE_SE ? 300 : 380;
+const COMPASS_CENTER = COMPASS_SIZE / 2;
+const NUMBER_RADIUS = COMPASS_SIZE * (170 / 380);
 
 interface QiblaData {
   direction: number;
@@ -128,8 +135,9 @@ export default function QiblaScreen() {
           angle = (angle + 360) % 360;
           
           // Apply calibration offset to correct for device-specific magnetic declination
-          // Adjust this value if your device shows incorrect heading
-          const calibrationOffset = -3; // Subtract 3 degrees to correct the offset
+          // Adjust this value if your device/location shows incorrect heading
+          // (e.g. -10 for UK, -3 was too small; increase magnitude to subtract more)
+          const calibrationOffset = -10; // Corrects ~7° error (actual 61° vs displayed 68°)
           angle = (angle + calibrationOffset + 360) % 360;
           
           // Apply exponential smoothing (low-pass filter) to reduce jitter
@@ -276,16 +284,16 @@ export default function QiblaScreen() {
           style={[styles.header, { backgroundColor: screenBackground, paddingTop: insets.top + 10 }]}
         >
           <TouchableOpacity 
-            style={styles.backButton}
+            style={[styles.backButton, IS_IPAD && styles.backButtonIpad]}
             onPress={() => router.back()}
           >
-            <IconSymbol name="chevron.left.circle.fill" size={42} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
-            <Text style={[styles.backText, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
+            <IconSymbol name="chevron.left.circle.fill" size={IS_IPAD ? 60 : 48} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
+            <Text style={[styles.backText, IS_IPAD && styles.backTextIpad, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
           </TouchableOpacity>
         </View>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.tint} />
-          <Text style={[styles.loadingText, { color: colors.text }]}>
+          <Text style={[styles.loadingText, IS_IPAD && { fontSize: 22 }, { color: colors.text }]}>
             Finding Qibla direction...
           </Text>
         </View>
@@ -300,21 +308,21 @@ export default function QiblaScreen() {
           style={[styles.header, { backgroundColor: screenBackground, paddingTop: insets.top + 10 }]}
         >
           <TouchableOpacity 
-            style={styles.backButton}
+            style={[styles.backButton, IS_IPAD && styles.backButtonIpad]}
             onPress={() => router.back()}
           >
-            <IconSymbol name="chevron.left.circle.fill" size={42} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
-            <Text style={[styles.backText, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
+            <IconSymbol name="chevron.left.circle.fill" size={IS_IPAD ? 60 : 48} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
+            <Text style={[styles.backText, IS_IPAD && styles.backTextIpad, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
           </TouchableOpacity>
         </View>
         <View style={styles.errorContainer}>
-          <IconSymbol name="exclamationmark.triangle" size={48} color={colors.tint} />
-          <Text style={[styles.errorText, { color: colors.text }]}>{error}</Text>
+          <IconSymbol name="exclamationmark.triangle" size={IS_IPAD ? 64 : 48} color={colors.tint} />
+          <Text style={[styles.errorText, IS_IPAD && { fontSize: 20, marginBottom: 28 }, { color: colors.text }]}>{error}</Text>
           <TouchableOpacity 
-            style={[styles.retryButton, { backgroundColor: colors.tint }]}
+            style={[styles.retryButton, IS_IPAD && styles.retryButtonIpad, { backgroundColor: colors.tint }]}
             onPress={initializeQibla}
           >
-            <Text style={[styles.retryButtonText, { color: colors.background }]}>
+            <Text style={[styles.retryButtonText, IS_IPAD && styles.retryButtonTextIpad, { color: colors.background }]}>
               Try Again
             </Text>
           </TouchableOpacity>
@@ -327,42 +335,42 @@ export default function QiblaScreen() {
     <View style={[styles.container, { backgroundColor: screenBackground }]}>
       {/* Header */}
       <View
-        style={[styles.header, { backgroundColor: screenBackground, paddingTop: insets.top + 10 }]}
+        style={[styles.header, IS_IPAD && styles.headerIpad, { backgroundColor: screenBackground, paddingTop: insets.top + 10 }]}
       >
         <TouchableOpacity 
-          style={styles.backButton}
+          style={[styles.backButton, IS_IPAD && styles.backButtonIpad]}
           onPress={() => router.back()}
         >
-          <IconSymbol name="chevron.left.circle.fill" size={42} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
-          <Text style={[styles.backText, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
+          <IconSymbol name="chevron.left.circle.fill" size={IS_IPAD ? 60 : 48} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
+          <Text style={[styles.backText, IS_IPAD && styles.backTextIpad, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
         </TouchableOpacity>
       </View>
 
       {/* Content */}
       <ScrollView 
         style={styles.content}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, IS_IPAD && styles.scrollContentIpad]}
         showsVerticalScrollIndicator={false}
       >
         {/* Location Info */}
-        <View style={[styles.infoCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
-          <View style={styles.infoRow}>
-            <IconSymbol name="location.fill" size={20} color={colors.tint} />
-            <Text style={[styles.infoText, { color: colors.text }]}>
+        <View style={[styles.infoCard, IS_IPAD && styles.infoCardIpad, { backgroundColor: colors.background, borderColor: colors.border }]}>
+          <View style={[styles.infoRow, IS_IPAD && styles.infoRowIpad]}>
+            <IconSymbol name="location.fill" size={IS_IPAD ? 28 : 20} color={colors.tint} />
+            <Text style={[styles.infoText, IS_IPAD && styles.infoTextIpad, { color: colors.text }]}>
               {locationInfo || 'Fetching location...'}
             </Text>
           </View>
           {qiblaData && (
             <>
-              <View style={styles.infoRow}>
-                <IconSymbol name="arrow.up.circle.fill" size={20} color={colors.tint} />
-                <Text style={[styles.infoText, { color: colors.text }]}>
+              <View style={[styles.infoRow, IS_IPAD && styles.infoRowIpad]}>
+                <IconSymbol name="arrow.up.circle.fill" size={IS_IPAD ? 28 : 20} color={colors.tint} />
+                <Text style={[styles.infoText, IS_IPAD && styles.infoTextIpad, { color: colors.text }]}>
                   Qibla: {Math.round(qiblaData.direction)}° ({getDirectionText(qiblaData.direction)})
                 </Text>
               </View>
-              <View style={styles.infoRow}>
-                <IconSymbol name="map.fill" size={20} color={colors.tint} />
-                <Text style={[styles.infoText, { color: colors.text }]}>
+              <View style={[styles.infoRow, IS_IPAD && styles.infoRowIpad]}>
+                <IconSymbol name="map.fill" size={IS_IPAD ? 28 : 20} color={colors.tint} />
+                <Text style={[styles.infoText, IS_IPAD && styles.infoTextIpad, { color: colors.text }]}>
                   Distance: {Math.round(qiblaData.distance)} km to Makkah
                 </Text>
               </View>
@@ -371,16 +379,17 @@ export default function QiblaScreen() {
         </View>
 
         {/* Title Section */}
-        <View style={styles.titleSection}>
-          <Text style={[styles.headerTitle, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Qibla Direction</Text>
-          <Text style={[styles.headerSubtitle, { color: isDarkMode ? '#D9E3F5' : '#1F2937' }]}>اتجاه القبلة</Text>
+        <View style={[styles.titleSection, IS_IPAD && styles.titleSectionIpad]}>
+          <Text style={[styles.headerTitle, IS_IPAD && styles.headerTitleIpad, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Qibla Direction</Text>
+          <Text style={[styles.headerSubtitle, IS_IPAD && styles.headerSubtitleIpad, { color: isDarkMode ? '#D9E3F5' : '#1F2937' }]}>اتجاه القبلة</Text>
         </View>
 
         {/* Compass */}
-        <View style={styles.compassContainer}>
+        <View style={[styles.compassContainer, (IS_IPAD || IS_IPHONE_SE) && { height: COMPASS_SIZE + (IS_IPHONE_SE ? 40 : 80) }]}>
           <Animated.View
             style={[
               styles.compassWrapper,
+              (IS_IPAD || IS_IPHONE_SE) && { width: COMPASS_SIZE, height: COMPASS_SIZE },
               {
                 transform: [{ rotate: compassRotation.interpolate({
                   inputRange: [0, 360],
@@ -389,22 +398,23 @@ export default function QiblaScreen() {
               },
             ]}
           >
-            <View style={[styles.compass, { borderColor: colors.border }]}>
+            <View style={[styles.compass, { borderColor: colors.border }, (IS_IPAD || IS_IPHONE_SE) && { width: COMPASS_SIZE, height: COMPASS_SIZE, borderRadius: COMPASS_SIZE / 2, borderWidth: IS_IPHONE_SE ? 5 : 8 }]}>
               {/* Degree numbers for all positions */}
               {[0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330].map((degree) => {
                 const radian = (degree - 90) * (Math.PI / 180);
-                const numberRadius = 170; // Distance from center to number (moved outside)
-                const numberX = Math.cos(radian) * numberRadius;
-                const numberY = Math.sin(radian) * numberRadius;
+                const numberX = Math.cos(radian) * NUMBER_RADIUS;
+                const numberY = Math.sin(radian) * NUMBER_RADIUS;
                 
                 return (
                   <Animated.View
                     key={degree}
                     style={[
                       styles.degreeNumberContainer,
+                      IS_IPAD && { width: 56, height: 28, marginLeft: -28, marginTop: -14 },
+                      IS_IPHONE_SE && { width: 44, height: 22, marginLeft: -22, marginTop: -11 },
                       {
-                        left: 190 + numberX,
-                        top: 190 + numberY,
+                        left: COMPASS_CENTER + numberX,
+                        top: COMPASS_CENTER + numberY,
                         transform: [
                           { 
                             rotate: compassRotation.interpolate({
@@ -416,7 +426,7 @@ export default function QiblaScreen() {
                       },
                     ]}
                   >
-                    <Text style={[styles.degreeNumber, { color: colors.text }]}>
+                    <Text style={[styles.degreeNumber, { color: colors.text }, IS_IPAD && { fontSize: 18 }, IS_IPHONE_SE && { fontSize: 12 }]}>
                       {degree}°
                     </Text>
                   </Animated.View>
@@ -426,7 +436,9 @@ export default function QiblaScreen() {
               {/* North indicator */}
               <Animated.View 
                 style={[
-                  styles.northIndicator, 
+                  styles.northIndicator,
+                  IS_IPAD && { top: 32, width: 78, height: 78, borderRadius: 39 },
+                  IS_IPHONE_SE && { top: 16, width: 40, height: 40, borderRadius: 20 },
                   { 
                     backgroundColor: colors.tint,
                     transform: [
@@ -440,14 +452,16 @@ export default function QiblaScreen() {
                   }
                 ]}
               >
-                <Text style={[styles.northText, { color: colors.background }]}>N</Text>
+                <Text style={[styles.northText, { color: colors.background }, IS_IPAD && { fontSize: 48 }, IS_IPHONE_SE && { fontSize: 24 }]}>N</Text>
               </Animated.View>
               
               {/* Direction markers */}
               <Animated.Text 
                 style={[
                   styles.directionMarker, 
-                  styles.eastMarker, 
+                  styles.eastMarker,
+                  IS_IPAD && { right: 48, fontSize: 48 },
+                  IS_IPHONE_SE && { right: 24, fontSize: 24 },
                   { 
                     color: colors.text,
                     transform: [
@@ -466,7 +480,9 @@ export default function QiblaScreen() {
               <Animated.Text 
                 style={[
                   styles.directionMarker, 
-                  styles.southMarker, 
+                  styles.southMarker,
+                  IS_IPAD && { bottom: 48, fontSize: 48 },
+                  IS_IPHONE_SE && { bottom: 24, fontSize: 24 },
                   { 
                     color: colors.text,
                     transform: [
@@ -485,7 +501,9 @@ export default function QiblaScreen() {
               <Animated.Text 
                 style={[
                   styles.directionMarker, 
-                  styles.westMarker, 
+                  styles.westMarker,
+                  IS_IPAD && { left: 48, fontSize: 48 },
+                  IS_IPHONE_SE && { left: 24, fontSize: 24 },
                   { 
                     color: colors.text,
                     transform: [
@@ -503,18 +521,18 @@ export default function QiblaScreen() {
               </Animated.Text>
               
               {/* Compass circle decorations */}
-              <View style={[styles.compassCircle, { borderColor: colors.border }]} />
-              <View style={[styles.compassCircleInner, { borderColor: colors.border }]} />
+              <View style={[styles.compassCircle, { borderColor: colors.border }, IS_IPAD && { width: 390, height: 390, borderRadius: 195 }, IS_IPHONE_SE && { width: 189, height: 189, borderRadius: 94.5 }]} />
+              <View style={[styles.compassCircleInner, { borderColor: colors.border }, IS_IPAD && { width: 326, height: 326, borderRadius: 163 }, IS_IPHONE_SE && { width: 158, height: 158, borderRadius: 79 }]} />
             </View>
           </Animated.View>
 
           {/* Device heading needle (red, shows where you're facing) */}
           <View style={styles.needleContainer}>
-            <View style={styles.needleWrapper}>
+            <View style={[styles.needleWrapper, IS_IPAD && { width: 10, height: 230 }, IS_IPHONE_SE && { width: 5, height: 110 }]}>
               {/* North end (red, pointed) */}
-              <View style={styles.needleNorth} />
+              <View style={[styles.needleNorth, IS_IPAD && { borderLeftWidth: 10, borderRightWidth: 10, borderBottomWidth: 115 }, IS_IPHONE_SE && { borderLeftWidth: 5, borderRightWidth: 5, borderBottomWidth: 55 }]} />
               {/* South end (white/gray, pointed) */}
-              <View style={[styles.needleSouth, { borderBottomColor: colors.border }]} />
+              <View style={[styles.needleSouth, { borderBottomColor: colors.border }, IS_IPAD && { borderLeftWidth: 10, borderRightWidth: 10, borderTopWidth: 115 }, IS_IPHONE_SE && { borderLeftWidth: 5, borderRightWidth: 5, borderTopWidth: 55 }]} />
             </View>
           </View>
 
@@ -523,6 +541,8 @@ export default function QiblaScreen() {
             <View
               style={[
                 styles.qiblaArrowContainer,
+                IS_IPAD && { paddingTop: 54 },
+                IS_IPHONE_SE && { paddingTop: 42 },
                 {
                   transform: [
                     { 
@@ -533,10 +553,10 @@ export default function QiblaScreen() {
               ]}
             >
               <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-                <View style={styles.qiblaImageWrapper}>
-                  <Image 
-                    source={require('@/assets/images/Mecca.png')} 
-                    style={styles.qiblaImage}
+                <View style={[styles.qiblaImageWrapper, IS_IPAD && { width: 58, height: 58 }, IS_IPHONE_SE && { width: 44, height: 44 }]}>
+                  <Image
+                    source={require('@/assets/images/Mecca.png')}
+                    style={[styles.qiblaImage, IS_IPAD && { width: 58, height: 58 }, IS_IPHONE_SE && { width: 44, height: 44 }]}
                     resizeMode="contain"
                   />
                 </View>
@@ -545,33 +565,33 @@ export default function QiblaScreen() {
           )}
 
           {/* Center dot */}
-          <View style={[styles.centerDot, { backgroundColor: colors.tint }]} />
+          <View style={[styles.centerDot, { backgroundColor: colors.tint }, IS_IPAD && { width: 16, height: 16, borderRadius: 8 }, IS_IPHONE_SE && { width: 10, height: 10, borderRadius: 5 }]} />
         </View>
 
         {/* Alignment Status */}
         {isMagnetometerAvailable && qiblaData && (
-          <View style={[styles.statusCard, { backgroundColor: '#000000' }]}>
-            <Text style={[styles.statusText, { color: '#FFFFFF' }]}>
+          <View style={[styles.statusCard, IS_IPAD && styles.statusCardIpad, { backgroundColor: '#000000' }]}>
+            <Text style={[styles.statusText, IS_IPAD && styles.statusTextIpad, { color: '#FFFFFF' }]}>
               {getQiblaAlignment()}
             </Text>
-            <Text style={[styles.headingText, { color: '#FFFFFF' }]}>
+            <Text style={[styles.headingText, IS_IPAD && styles.headingTextIpad, { color: '#FFFFFF' }]}>
               Current heading: {Math.round(heading)}°
             </Text>
           </View>
         )}
 
         {/* Instructions */}
-        <View style={[styles.instructionsCard, { backgroundColor: colors.background, borderColor: colors.border, marginBottom: insets.bottom + 20 }]}>
-          <Text style={[styles.instructionsTitle, { color: colors.text }]}>
+        <View style={[styles.instructionsCard, IS_IPAD && styles.instructionsCardIpad, { backgroundColor: colors.background, borderColor: colors.border, marginBottom: insets.bottom + 20 }]}>
+          <Text style={[styles.instructionsTitle, IS_IPAD && styles.instructionsTitleIpad, { color: colors.text }]}>
             Instructions:
           </Text>
-          <Text style={[styles.instructionsText, { color: colors.text }]}>
+          <Text style={[styles.instructionsText, IS_IPAD && styles.instructionsTextIpad, { color: colors.text }]}>
             • Hold your device flat and parallel to the ground
           </Text>
-          <Text style={[styles.instructionsText, { color: colors.text }]}>
+          <Text style={[styles.instructionsText, IS_IPAD && styles.instructionsTextIpad, { color: colors.text }]}>
             • Rotate yourself until the Kaaba image points upward
           </Text>
-          <Text style={[styles.instructionsText, { color: colors.text }]}>
+          <Text style={[styles.instructionsText, IS_IPAD && styles.instructionsTextIpad, { color: colors.text }]}>
             • Face the direction shown for Qibla
           </Text>
         </View>
@@ -588,15 +608,28 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     paddingHorizontal: 15,
   },
+  headerIpad: {
+    paddingBottom: 12,
+    paddingHorizontal: 28,
+  },
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 6,
+    marginTop: 6,
   },
   backText: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
-    marginLeft: 5,
+    marginLeft: 6,
+  },
+  backButtonIpad: {
+    marginBottom: 12,
+    marginTop: 10,
+  },
+  backTextIpad: {
+    fontSize: 24,
+    marginLeft: 10,
   },
   headerTitleContainer: {
     alignItems: 'center',
@@ -607,15 +640,26 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     marginTop: 8,
   },
+  titleSectionIpad: {
+    marginBottom: 28,
+    marginTop: 12,
+  },
   headerTitle: {
     fontSize: 32,
     fontWeight: 'bold',
     marginBottom: 4,
   },
+  headerTitleIpad: {
+    fontSize: 42,
+    marginBottom: 8,
+  },
   headerSubtitle: {
     fontSize: 20,
     fontWeight: 'bold',
     fontFamily: Fonts.primary,
+  },
+  headerSubtitleIpad: {
+    fontSize: 28,
   },
   content: {
     flex: 1,
@@ -624,21 +668,40 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 40,
   },
+  scrollContentIpad: {
+    padding: 28,
+    paddingBottom: 48,
+    maxWidth: 720,
+    alignSelf: 'center',
+    width: '100%',
+  },
   infoCard: {
     borderRadius: 12,
     borderWidth: 1,
     padding: 16,
     marginBottom: 20,
   },
+  infoCardIpad: {
+    borderRadius: 16,
+    padding: 22,
+    marginBottom: 24,
+  },
   infoRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 8,
   },
+  infoRowIpad: {
+    marginBottom: 12,
+  },
   infoText: {
     fontSize: 14,
     marginLeft: 8,
     flex: 1,
+  },
+  infoTextIpad: {
+    fontSize: 20,
+    marginLeft: 12,
   },
   compassContainer: {
     height: 420,
@@ -804,25 +867,49 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 4,
   },
+  statusCardIpad: {
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 24,
+  },
+  statusTextIpad: {
+    fontSize: 20,
+    marginBottom: 6,
+  },
   headingText: {
     fontSize: 13,
     fontWeight: '600',
     opacity: 0.9,
+  },
+  headingTextIpad: {
+    fontSize: 18,
   },
   instructionsCard: {
     borderRadius: 12,
     borderWidth: 1,
     padding: 16,
   },
+  instructionsCardIpad: {
+    borderRadius: 16,
+    padding: 22,
+  },
   instructionsTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     marginBottom: 12,
   },
+  instructionsTitleIpad: {
+    fontSize: 22,
+    marginBottom: 16,
+  },
   instructionsText: {
     fontSize: 14,
     marginBottom: 6,
     opacity: 0.8,
+  },
+  instructionsTextIpad: {
+    fontSize: 20,
+    marginBottom: 10,
   },
   degreeMarker: {
     position: 'absolute',
@@ -879,9 +966,17 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
   },
+  retryButtonIpad: {
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 12,
+  },
   retryButtonText: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  retryButtonTextIpad: {
+    fontSize: 20,
   },
 });
 

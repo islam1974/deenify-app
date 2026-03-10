@@ -10,6 +10,7 @@ import { hadithCollections, getHadithsBySubcategory, Hadith } from '@/data/hadit
 import { HadithService } from '@/services/HadithService';
 
 const { width } = Dimensions.get('window');
+const IS_IPAD = Platform.OS === 'ios' && (Platform.isPad === true || width >= 768);
 
 type ViewMode = 'collections' | 'categories' | 'hadiths';
 
@@ -124,9 +125,10 @@ export default function HadithScreen() {
 
   // Footer for collections: hadith snippet + hint
   const renderCollectionsFooter = () => (
-    <View style={[styles.collectionsFooter, { marginBottom: insets.bottom + 16 }]}>
+    <View style={[styles.collectionsFooter, IS_IPAD && styles.collectionsFooterIpad, { marginBottom: insets.bottom + 16 }]}>
       <View style={[
         styles.collectionsFooterCard,
+        IS_IPAD && styles.collectionsFooterCardIpad,
         { backgroundColor: isDarkMode ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }
       ]}>
         <Text style={[styles.collectionsFooterQuote, { color: secondaryTextColor }]}>
@@ -147,12 +149,12 @@ export default function HadithScreen() {
     <FlatList
       data={hadithCollections}
       numColumns={3}
-      contentContainerStyle={styles.collectionsGrid}
+      contentContainerStyle={[styles.collectionsGrid, IS_IPAD && styles.collectionsGridIpad]}
       ListFooterComponent={renderCollectionsFooter}
       keyExtractor={(item, index) => index.toString()}
       renderItem={({ item, index }) => (
         <TouchableOpacity
-          style={styles.collectionCard}
+          style={[styles.collectionCard, IS_IPAD && styles.collectionCardIpad]}
           onPress={() => handleCollectionPress(item.collection)}
           activeOpacity={0.7}
         >
@@ -160,12 +162,12 @@ export default function HadithScreen() {
             colors={getCollectionColor(index)}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={styles.collectionGradient}
+            style={[styles.collectionGradient, IS_IPAD && styles.collectionGradientIpad]}
           >
-            <Text style={styles.collectionName} numberOfLines={2}>
+            <Text style={[styles.collectionName, IS_IPAD && styles.collectionNameIpad]} numberOfLines={2}>
               {item.collection}
             </Text>
-            <Text style={styles.collectionBadgeText}>
+            <Text style={[styles.collectionBadgeText, IS_IPAD && styles.collectionBadgeTextIpad]}>
               {item.subcategories.length} {item.subcategories.length === 1 ? 'Category' : 'Categories'}
             </Text>
           </LinearGradient>
@@ -180,13 +182,13 @@ export default function HadithScreen() {
     if (!collection) return null;
 
     return (
-      <ScrollView style={[styles.categoriesContainer, { backgroundColor: screenBackground }]}>
+      <ScrollView style={[styles.categoriesContainer, IS_IPAD && styles.categoriesContainerIpad, { backgroundColor: screenBackground }]} contentContainerStyle={IS_IPAD ? styles.categoriesContentIpad : undefined}>
         {collection.subcategories.map((category, index) => {
           const hadithCount = getHadithsBySubcategory(selectedCollection, category.name).length;
           return (
             <TouchableOpacity
               key={index}
-              style={[styles.categoryCard, { 
+              style={[styles.categoryCard, IS_IPAD && styles.categoryCardIpad, { 
                 backgroundColor: cardBackground,
                 borderColor: isDarkMode ? '#223248' : '#E5E7EB'
               }]}
@@ -195,17 +197,17 @@ export default function HadithScreen() {
             >
               <View style={styles.categoryLeft}>
                 <View style={styles.categoryTextContainer}>
-                  <Text style={[styles.categoryName, { color: primaryTextColor }]}>
+                  <Text style={[styles.categoryName, IS_IPAD && styles.categoryNameIpad, { color: primaryTextColor }]}>
                     {category.name}
                   </Text>
-                  <Text style={[styles.categoryCount, { color: secondaryTextColor }]}>
+                  <Text style={[styles.categoryCount, IS_IPAD && styles.categoryCountIpad, { color: secondaryTextColor }]}>
                     {hadithCount} {hadithCount === 1 ? 'Hadith' : 'Hadiths'}
                   </Text>
                 </View>
               </View>
               <IconSymbol 
                 name="chevron.right" 
-                size={20} 
+                size={IS_IPAD ? 28 : 20} 
                 color={mutedTextColor} 
               />
             </TouchableOpacity>
@@ -254,15 +256,15 @@ export default function HadithScreen() {
     const isBookmarked = bookmarkedHadiths.includes(currentHadith.id);
 
     return (
-      <ScrollView style={[styles.hadithContainer, { backgroundColor: screenBackground }]}>
-        <View style={[styles.hadithCard, { 
+      <ScrollView style={[styles.hadithContainer, IS_IPAD && styles.hadithContainerIpad, { backgroundColor: screenBackground }]} contentContainerStyle={IS_IPAD ? styles.hadithContentIpad : undefined}>
+        <View style={[styles.hadithCard, IS_IPAD && styles.hadithCardIpad, { 
           backgroundColor: cardBackground,
           borderColor: isDarkMode ? '#223248' : '#E5E7EB'
         }]}>
           {/* Hadith Header */}
           <View style={styles.hadithHeader}>
-            <View style={styles.hadithSourceBadge}>
-              <Text style={styles.hadithSourceText}>
+            <View style={[styles.hadithSourceBadge, IS_IPAD && styles.hadithSourceBadgeIpad]}>
+              <Text style={[styles.hadithSourceText, IS_IPAD && styles.hadithSourceTextIpad]}>
                 {currentHadith.source}
               </Text>
             </View>
@@ -272,7 +274,7 @@ export default function HadithScreen() {
             >
               <IconSymbol 
                 name={isBookmarked ? "bookmark.fill" : "bookmark"} 
-                size={24} 
+                size={IS_IPAD ? 32 : 24} 
                 color={isBookmarked ? "#F59E0B" : primaryTextColor} 
               />
             </TouchableOpacity>
@@ -280,8 +282,8 @@ export default function HadithScreen() {
 
           {/* Arabic Text */}
           {currentHadith.arabic && (
-            <View style={[styles.arabicContainer, { backgroundColor: isDarkMode ? '#101c2b' : '#F8FAFC' }]}>
-              <Text style={[styles.hadithArabic, { color: primaryTextColor }]}>
+            <View style={[styles.arabicContainer, IS_IPAD && styles.arabicContainerIpad, { backgroundColor: isDarkMode ? '#101c2b' : '#F8FAFC' }]}>
+              <Text style={[styles.hadithArabic, IS_IPAD && styles.hadithArabicIpad, { color: primaryTextColor }]}>
                 {currentHadith.arabic}
               </Text>
             </View>
@@ -289,23 +291,23 @@ export default function HadithScreen() {
 
           {/* English Translation */}
           <View style={styles.translationContainer}>
-            <Text style={[styles.hadithText, { color: primaryTextColor }]}>
+            <Text style={[styles.hadithText, IS_IPAD && styles.hadithTextIpad, { color: primaryTextColor }]}>
               "{currentHadith.text}"
             </Text>
           </View>
 
           {/* Hadith Meta */}
           <View style={[styles.hadithMeta, { borderTopColor: isDarkMode ? '#223248' : '#E5E7EB' }]}>
-            <View style={styles.metaRow}>
-              <IconSymbol name="person.fill" size={16} color={mutedTextColor} />
-              <Text style={[styles.narrator, { color: primaryTextColor }]}>
+            <View style={[styles.metaRow, IS_IPAD && styles.metaRowIpad]}>
+              <IconSymbol name="person.fill" size={IS_IPAD ? 22 : 16} color={mutedTextColor} />
+              <Text style={[styles.narrator, IS_IPAD && styles.narratorIpad, { color: primaryTextColor }]}>
                 {currentHadith.narrator}
               </Text>
             </View>
             {currentHadith.bookNumber && currentHadith.hadithNumber && (
-              <View style={styles.metaRow}>
-                <IconSymbol name="number" size={16} color={mutedTextColor} />
-                <Text style={[styles.reference, { color: secondaryTextColor }]}>
+              <View style={[styles.metaRow, IS_IPAD && styles.metaRowIpad]}>
+                <IconSymbol name="number" size={IS_IPAD ? 22 : 16} color={mutedTextColor} />
+                <Text style={[styles.reference, IS_IPAD && styles.referenceIpad, { color: secondaryTextColor }]}>
                   Book {currentHadith.bookNumber}, Hadith {currentHadith.hadithNumber}
                 </Text>
               </View>
@@ -314,36 +316,36 @@ export default function HadithScreen() {
         </View>
 
         {/* Navigation */}
-        <View style={styles.hadithNavigation}>
+        <View style={[styles.hadithNavigation, IS_IPAD && styles.hadithNavigationIpad]}>
           <TouchableOpacity
-            style={[styles.navButton, { 
+            style={[styles.navButton, IS_IPAD && styles.navButtonIpad, { 
               backgroundColor: currentHadithIndex === 0 ? colors.border : colors.tint,
               opacity: currentHadithIndex === 0 ? 0.5 : 1
             }]}
             onPress={() => setCurrentHadithIndex(prev => Math.max(0, prev - 1))}
             disabled={currentHadithIndex === 0}
           >
-            <IconSymbol name="chevron.left" size={24} color="#ffffff" />
+            <IconSymbol name="chevron.left" size={IS_IPAD ? 32 : 24} color="#ffffff" />
           </TouchableOpacity>
           
           <View style={styles.pageIndicatorContainer}>
-            <Text style={[styles.pageIndicator, { color: primaryTextColor }]}>
+            <Text style={[styles.pageIndicator, IS_IPAD && styles.pageIndicatorIpad, { color: primaryTextColor }]}>
               {currentHadithIndex + 1} / {currentHadiths.length}
             </Text>
-            <Text style={[styles.pageIndicatorLabel, { color: secondaryTextColor }]}>
+            <Text style={[styles.pageIndicatorLabel, IS_IPAD && styles.pageIndicatorLabelIpad, { color: secondaryTextColor }]}>
               Hadith
             </Text>
           </View>
           
           <TouchableOpacity
-            style={[styles.navButton, { 
+            style={[styles.navButton, IS_IPAD && styles.navButtonIpad, { 
               backgroundColor: currentHadithIndex === currentHadiths.length - 1 ? colors.border : colors.tint,
               opacity: currentHadithIndex === currentHadiths.length - 1 ? 0.5 : 1
             }]}
             onPress={() => setCurrentHadithIndex(prev => Math.min(currentHadiths.length - 1, prev + 1))}
             disabled={currentHadithIndex === currentHadiths.length - 1}
           >
-            <IconSymbol name="chevron.right" size={24} color="#ffffff" />
+            <IconSymbol name="chevron.right" size={IS_IPAD ? 32 : 24} color="#ffffff" />
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -355,36 +357,36 @@ export default function HadithScreen() {
       {/* Header */}
       {viewMode === 'collections' && (
         <View
-          style={[styles.headerGradient, { backgroundColor: screenBackground, paddingTop: insets.top + 2 }]}
+          style={[styles.headerGradient, IS_IPAD && styles.headerGradientIpad, { backgroundColor: screenBackground, paddingTop: insets.top + 2 }]}
         >
           <TouchableOpacity 
-            style={styles.backButton}
+            style={[styles.backButton, IS_IPAD && styles.backButtonIpad]}
             onPress={handleBackPress}
           >
-            <IconSymbol name="chevron.left.circle.fill" size={42} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
-            <Text style={[styles.backText, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
+            <IconSymbol name="chevron.left.circle.fill" size={IS_IPAD ? 52 : 42} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
+            <Text style={[styles.backText, IS_IPAD && styles.backTextIpad, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
           </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
-            <Text style={[styles.headerTitle, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>{getHeaderTitle()}</Text>
-            <Text style={[styles.headerSubtitle, { color: isDarkMode ? '#D9E3F5' : '#1F2937' }]}>{getHeaderSubtitle()}</Text>
+          <View style={[styles.headerTitleContainer, IS_IPAD && styles.headerTitleContainerIpad]}>
+            <Text style={[styles.headerTitle, IS_IPAD && styles.headerTitleIpad, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>{getHeaderTitle()}</Text>
+            <Text style={[styles.headerSubtitle, IS_IPAD && styles.headerSubtitleIpad, { color: isDarkMode ? '#D9E3F5' : '#1F2937' }]}>{getHeaderSubtitle()}</Text>
           </View>
         </View>
       )}
       
       {viewMode !== 'collections' && (
         <View
-          style={[styles.headerGradient, { backgroundColor: screenBackground, paddingTop: insets.top + 2 }]}
+          style={[styles.headerGradient, IS_IPAD && styles.headerGradientIpad, { backgroundColor: screenBackground, paddingTop: insets.top + 2 }]}
         >
           <TouchableOpacity 
-            style={styles.backButton}
+            style={[styles.backButton, IS_IPAD && styles.backButtonIpad]}
             onPress={handleBackPress}
           >
-            <IconSymbol name="chevron.left" size={24} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
-            <Text style={[styles.backText, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
+            <IconSymbol name="chevron.left" size={IS_IPAD ? 32 : 24} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
+            <Text style={[styles.backText, IS_IPAD && styles.backTextIpad, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
           </TouchableOpacity>
-          <View style={styles.headerTitleContainer}>
-            <Text style={[styles.headerTitle, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>{getHeaderTitle()}</Text>
-            <Text style={[styles.headerSubtitle, { color: isDarkMode ? '#D9E3F5' : '#1F2937' }]}>{getHeaderSubtitle()}</Text>
+          <View style={[styles.headerTitleContainer, IS_IPAD && styles.headerTitleContainerIpad]}>
+            <Text style={[styles.headerTitle, IS_IPAD && styles.headerTitleIpad, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>{getHeaderTitle()}</Text>
+            <Text style={[styles.headerSubtitle, IS_IPAD && styles.headerSubtitleIpad, { color: isDarkMode ? '#D9E3F5' : '#1F2937' }]}>{getHeaderSubtitle()}</Text>
           </View>
         </View>
       )}
@@ -405,19 +407,35 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     paddingHorizontal: 10,
   },
+  headerGradientIpad: {
+    paddingBottom: 12,
+    paddingHorizontal: 28,
+  },
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 2,
+    marginTop: 6,
+  },
+  backButtonIpad: {
+    marginBottom: 8,
+    marginTop: 10,
   },
   backText: {
     fontSize: 13,
     fontWeight: '600',
     marginLeft: 3,
   },
+  backTextIpad: {
+    fontSize: 20,
+    marginLeft: 8,
+  },
   headerTitleContainer: {
     alignItems: 'center',
     marginTop: 8,
+  },
+  headerTitleContainerIpad: {
+    marginTop: 16,
   },
   headerTitle: {
     fontSize: 28,
@@ -430,6 +448,10 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 4,
   },
+  headerTitleIpad: {
+    fontSize: 38,
+    marginBottom: 6,
+  },
   headerSubtitle: {
     fontSize: 20,
     opacity: 0.9,
@@ -440,16 +462,30 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
   },
+  headerSubtitleIpad: {
+    fontSize: 26,
+  },
 
   // Collections Grid
   collectionsGrid: {
     paddingHorizontal: 12,
     paddingTop: 12,
   },
+  collectionsGridIpad: {
+    paddingHorizontal: 28,
+    paddingTop: 20,
+    maxWidth: 900,
+    alignSelf: 'center',
+    width: '100%',
+  },
   collectionsFooter: {
     marginTop: 24,
     paddingHorizontal: 12,
     alignItems: 'center',
+  },
+  collectionsFooterIpad: {
+    marginTop: 32,
+    paddingHorizontal: 28,
   },
   collectionsFooterCard: {
     padding: 16,
@@ -457,6 +493,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderLeftWidth: 4,
     borderLeftColor: '#c6ca53',
+  },
+  collectionsFooterCardIpad: {
+    padding: 28,
+    borderRadius: 20,
   },
   collectionsFooterQuote: {
     fontSize: 15,
@@ -490,12 +530,22 @@ const styles = StyleSheet.create({
     }),
     maxWidth: (width - 24 - 60) / 3,
   },
+  collectionCardIpad: {
+    margin: 12,
+    borderRadius: 24,
+    maxWidth: (Math.min(width, 900) - 48 - 72) / 3,
+  },
   collectionGradient: {
     padding: 12,
     minHeight: 120,
     justifyContent: 'center',
     alignItems: 'center',
     gap: 8,
+  },
+  collectionGradientIpad: {
+    padding: 24,
+    minHeight: 200,
+    gap: 16,
   },
   collectionName: {
     fontSize: 12,
@@ -505,17 +555,32 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     letterSpacing: 0.4,
   },
+  collectionNameIpad: {
+    fontSize: 18,
+    lineHeight: 24,
+  },
   collectionBadgeText: {
     fontSize: 10,
     fontWeight: '700',
     color: '#000000',
     letterSpacing: 0.2,
   },
+  collectionBadgeTextIpad: {
+    fontSize: 16,
+  },
 
   // Categories List
   categoriesContainer: {
     flex: 1,
     padding: 16,
+  },
+  categoriesContainerIpad: {
+    padding: 28,
+  },
+  categoriesContentIpad: {
+    maxWidth: 720,
+    alignSelf: 'center',
+    width: '100%',
   },
   categoryCard: {
     flexDirection: 'row',
@@ -537,6 +602,11 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  categoryCardIpad: {
+    padding: 28,
+    borderRadius: 20,
+    marginBottom: 22,
+  },
   categoryLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -550,14 +620,29 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 4,
   },
+  categoryNameIpad: {
+    fontSize: 26,
+    marginBottom: 8,
+  },
   categoryCount: {
     fontSize: 13,
+  },
+  categoryCountIpad: {
+    fontSize: 20,
   },
 
   // Hadiths Viewer
   hadithContainer: {
     flex: 1,
     padding: 16,
+  },
+  hadithContainerIpad: {
+    padding: 28,
+  },
+  hadithContentIpad: {
+    maxWidth: 720,
+    alignSelf: 'center',
+    width: '100%',
   },
   hadithCard: {
     borderRadius: 16,
@@ -576,6 +661,11 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  hadithCardIpad: {
+    borderRadius: 24,
+    padding: 36,
+    marginBottom: 36,
+  },
   hadithHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -587,6 +677,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
+  },
+  hadithSourceBadgeIpad: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 14,
   },
   hadithSourceText: {
     fontSize: 12,
@@ -601,11 +696,20 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 16,
   },
+  arabicContainerIpad: {
+    padding: 28,
+    borderRadius: 20,
+    marginBottom: 24,
+  },
   hadithArabic: {
     fontSize: 22,
     lineHeight: 38,
     textAlign: 'right',
     fontFamily: Fonts.primary,
+  },
+  hadithArabicIpad: {
+    fontSize: 28,
+    lineHeight: 48,
   },
   translationContainer: {
     marginBottom: 16,
@@ -614,6 +718,10 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 28,
     fontStyle: 'italic',
+  },
+  hadithTextIpad: {
+    fontSize: 22,
+    lineHeight: 36,
   },
   hadithMeta: {
     marginTop: 16,
@@ -625,15 +733,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
+  metaRowIpad: {
+    marginBottom: 12,
+  },
   narrator: {
     fontSize: 15,
     fontWeight: '600',
     marginLeft: 8,
   },
+  narratorIpad: {
+    fontSize: 20,
+    marginLeft: 12,
+  },
   reference: {
     fontSize: 14,
     opacity: 0.7,
     marginLeft: 8,
+  },
+  referenceIpad: {
+    fontSize: 18,
+    marginLeft: 12,
   },
   hadithNavigation: {
     flexDirection: 'row',
@@ -641,6 +760,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 8,
     marginBottom: 20,
+  },
+  hadithNavigationIpad: {
+    paddingHorizontal: 16,
+    marginBottom: 28,
   },
   navButton: {
     width: 56,
@@ -654,6 +777,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 4,
   },
+  navButtonIpad: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+  },
   pageIndicatorContainer: {
     alignItems: 'center',
   },
@@ -661,10 +789,17 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
+  pageIndicatorIpad: {
+    fontSize: 24,
+  },
   pageIndicatorLabel: {
     fontSize: 12,
     opacity: 0.6,
     marginTop: 2,
+  },
+  pageIndicatorLabelIpad: {
+    fontSize: 16,
+    marginTop: 4,
   },
   emptyContainer: {
     flex: 1,

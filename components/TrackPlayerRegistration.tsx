@@ -6,10 +6,15 @@ import { Platform } from 'react-native';
  * Registers the playback service for background audio.
  * Uses dynamic import() so in Expo Go (missing native module) the load fails as a promise
  * rejection instead of a sync throw — no red box. Works in dev/production builds.
+ * On Android we skip TrackPlayer (incompatible with New Architecture); AudioService uses expo-av instead.
  */
 export default function TrackPlayerRegistration() {
   useEffect(() => {
     if (Platform.OS !== 'ios' && Platform.OS !== 'android') return;
+
+    // Skip on Android: react-native-track-player native module throws with New Architecture (TurboModule).
+    // AudioService uses expo-av on Android. Lock screen controls require New Arch to be disabled (conflicts with react-native-worklets).
+    if (Platform.OS === 'android') return;
 
     // Only skip when we're sure we're in Expo Go (no TrackPlayer there). Otherwise try to register (dev/standalone).
     const ownership = (Constants as { appOwnership?: string }).appOwnership;

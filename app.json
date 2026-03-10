@@ -20,6 +20,7 @@
       },
       "buildNumber": "1",
       "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
         "NSLocationWhenInUseUsageDescription": "This app needs access to location to provide accurate prayer times for your area.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to location to provide accurate prayer times for your area.",
         "NSUserNotificationsUsageDescription": "This app needs permission to send prayer time notifications to remind you when it's time to pray.",

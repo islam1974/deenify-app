@@ -1,8 +1,8 @@
 import ErrorBoundary from '@/components/ErrorBoundary';
 import FontLoader from '@/components/FontLoader';
-import TrackPlayerRegistration from '@/components/TrackPlayerRegistration';
 import PrivacyNoticeModal from '@/components/PrivacyNoticeModal';
 import SplashScreenManager from '@/components/SplashScreenManager';
+import TrackPlayerRegistration from '@/components/TrackPlayerRegistration';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { LocationProvider } from '@/contexts/LocationContext';
 import { PrayerNotificationProvider } from '@/contexts/PrayerNotificationContext';
@@ -31,14 +31,14 @@ try {
   // Dimensions can throw before native bridge is ready (e.g. Expo Go / dev)
 }
 
-const IS_IPAD = false; // Set true when deploying on iPad
-const IS_PRO_MAX = SCREEN_WIDTH >= 430; // iPhone 16 Pro Max, Plus
-const TAB_ICON_SIZE = IS_IPAD ? 52 : IS_PRO_MAX ? 30 : 26;
+const IS_IPAD = Platform.OS === 'ios' && (Platform.isPad === true || SCREEN_WIDTH >= 768);
+const IS_PRO_MAX = !IS_IPAD && SCREEN_WIDTH >= 430; // iPhone 16 Pro Max, Plus
+const TAB_ICON_SIZE = IS_IPAD ? 43 : IS_PRO_MAX ? 30 : 26;
 // iPhone SE and other short screens: add more bottom padding so tab bar isn't cut off
 const IS_COMPACT_HEIGHT = SCREEN_HEIGHT < 700;
 const TAB_BAR_BOTTOM_EXTRA = Platform.OS === 'ios' ? (IS_COMPACT_HEIGHT ? 20 : 8) : IS_COMPACT_HEIGHT ? 12 : 4;
-const TAB_LABEL_FONT_SIZE = IS_PRO_MAX ? 13 : 12;
-const TAB_BAR_BASE_HEIGHT = IS_IPAD ? 60 : IS_PRO_MAX ? 52 : 48;
+const TAB_LABEL_FONT_SIZE = IS_IPAD ? 16 : IS_PRO_MAX ? 13 : 12;
+const TAB_BAR_BASE_HEIGHT = IS_IPAD ? 72 : IS_PRO_MAX ? 52 : 48;
 
 type SFSymbolName = 'house.fill' | 'house' | 'calendar.circle.fill' | 'calendar.circle' | 'location.fill' | 'location';
 
@@ -54,8 +54,9 @@ function TabBarLabel({ title, focused, color }: { title: string; focused: boolea
         fontWeight: focused ? '700' : '600',
         color,
         opacity: focused ? 1 : 0.85,
-        marginTop: 4,
+        marginTop: IS_IPAD ? 6 : 4,
         textAlign: 'center',
+        ...(IS_IPAD && { lineHeight: 22 }),
       }}
     >
       {title}
@@ -95,17 +96,18 @@ function TabNavigator() {
             display: isQuranReader ? 'none' : 'flex',
           },
           tabBarItemStyle: {
-            paddingVertical: IS_PRO_MAX ? 6 : 4,
-            paddingHorizontal: IS_IPAD ? 16 : IS_PRO_MAX ? 6 : 4,
-            minWidth: IS_IPAD ? 100 : IS_PRO_MAX ? 72 : 64,
+            paddingVertical: IS_IPAD ? 10 : IS_PRO_MAX ? 6 : 4,
+            paddingHorizontal: IS_IPAD ? 20 : IS_PRO_MAX ? 6 : 4,
+            minWidth: IS_IPAD ? 120 : IS_PRO_MAX ? 72 : 64,
           },
           tabBarActiveTintColor: '#2E7D32',
           tabBarInactiveTintColor: '#000000',
           tabBarLabelStyle: {
             fontSize: TAB_LABEL_FONT_SIZE,
             fontWeight: '600',
-            marginTop: 4,
+            marginTop: IS_IPAD ? 6 : 4,
             textAlign: 'center',
+            ...(IS_IPAD && { lineHeight: 22 }),
           },
           tabBarButton: (props) => {
             const focused = props.accessibilityState?.selected;

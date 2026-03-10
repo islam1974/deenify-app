@@ -43,7 +43,7 @@ import {
 import { useFonts } from 'expo-font';
 // Removed expo-splash-screen to disable native splash handling
 import React, { useEffect } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Platform, Text, View } from 'react-native';
 
 interface FontLoaderProps {
   children: React.ReactNode;
@@ -102,6 +102,19 @@ export default function FontLoader({ children }: FontLoaderProps) {
   }, [fontsLoaded]);
 
   if (!fontsLoaded) {
+    // On Android show green splash-style screen so transition from native splash is seamless
+    if (Platform.OS === 'android') {
+      return (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#07C589' }}>
+          <Image
+            source={require('@/assets/images/Deenify_Icon.png')}
+            style={{ width: 160, height: 160 }}
+            resizeMode="contain"
+          />
+          <ActivityIndicator size="large" color="#FFF" style={{ marginTop: 24 }} />
+        </View>
+      );
+    }
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
         <ActivityIndicator size="large" color="#4CAF50" />

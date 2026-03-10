@@ -17,9 +17,11 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Alert, Modal, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function SettingsScreenContent() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const colors = Colors[((theme as 'light' | 'dark') ?? 'light' as 'light' | 'dark') ?? 'light'];
   const { location, locationEnabled, toggleLocationServices } = useLocation();
@@ -244,7 +246,7 @@ function SettingsScreenContent() {
                 {
                   text: 'Email Support',
                   onPress: () => {
-                    const email = 'support@deenify.app';
+                    const email = 'suhel_islam@yahoo.co.uk';
                     const subject = 'Feedback for Deenify';
                     const url = `mailto:${email}?subject=${encodeURIComponent(subject)}`;
                     require('react-native').Linking.openURL(url).catch(() => {
@@ -255,7 +257,7 @@ function SettingsScreenContent() {
                 {
                   text: 'Report Issue',
                   onPress: () => {
-                    const email = 'support@deenify.app';
+                    const email = 'suhel_islam@yahoo.co.uk';
                     const subject = 'Issue Report - Deenify';
                     const url = `mailto:${email}?subject=${encodeURIComponent(subject)}`;
                     require('react-native').Linking.openURL(url).catch(() => {
@@ -272,8 +274,13 @@ function SettingsScreenContent() {
     },
   ];
 
+  const headerGap = insets.top + 56;
+
   return (
-    <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
+    <ScrollView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      contentContainerStyle={{ paddingTop: headerGap }}
+    >
       <View style={styles.header}>
         <Text style={[styles.title, { color: colors.text }]}>
           Settings
@@ -382,12 +389,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   title: {
-    fontSize: 28,
+    fontSize: 34,
     fontWeight: 'bold',
-    marginBottom: 5,
+    marginBottom: 6,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 20,
     opacity: 0.7,
   },
   section: {
@@ -395,9 +402,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: 'bold',
-    marginBottom: 10,
+    marginBottom: 12,
     marginLeft: 5,
   },
   sectionContent: {
@@ -427,12 +434,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   settingTitle: {
-    fontSize: 16,
+    fontSize: 20,
     fontWeight: '600',
-    marginBottom: 2,
+    marginBottom: 3,
   },
   settingSubtitle: {
-    fontSize: 14,
+    fontSize: 17,
     opacity: 0.7,
   },
   settingRight: {

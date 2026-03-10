@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const IS_SMALL_PHONE = SCREEN_WIDTH < 400;
-const IS_IPAD = false; // Set true when deploying on iPad
+const IS_IPAD = Platform.OS === 'ios' && (Platform.isPad === true || SCREEN_WIDTH >= 768);
 // iPhone 16 Pro (~402pt), not Plus/Max (~430pt+): use smaller circle
 const IS_16_PRO_SIZE = SCREEN_WIDTH >= 393 && SCREEN_WIDTH < 420;
 // iPhone SE and other short screens: use smaller circle so it fits
@@ -339,7 +339,7 @@ export default function TasbihScreen() {
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <IconSymbol name="chevron.left.circle.fill" size={IS_IPAD ? 42 : 42} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
+          <IconSymbol name="chevron.left.circle.fill" size={IS_IPAD ? 52 : 42} color={isDarkMode ? '#FFFFFF' : '#1F2937'} />
           <Text style={[styles.backText, { color: isDarkMode ? '#FFFFFF' : '#1F2937' }]}>Back</Text>
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}>
@@ -548,7 +548,7 @@ export default function TasbihScreen() {
           <Text style={[styles.resetText, { color: colors.text }]}>Reset</Text>
         </TouchableOpacity>
 
-        {/* Success Animation */}
+        {/* Success Animation - stays inside content wrapper */}
         {showSuccessAnimation && (
           <>
             {/* Confetti */}
@@ -605,6 +605,15 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
   },
+  contentWrapper: {
+    flex: 1,
+  },
+  contentWrapperIpad: {
+    flex: 1,
+    maxWidth: 900,
+    alignSelf: 'center',
+    width: '100%',
+  },
   headerGradient: {
     paddingBottom: IS_IPAD ? 12 : 3,
     paddingHorizontal: IS_IPAD ? 40 : 15,
@@ -613,6 +622,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: IS_IPAD ? 10 : 2,
+    marginTop: IS_IPAD ? 24 : 12,
   },
   backText: {
     fontSize: IS_IPAD ? 20 : 16,
@@ -847,16 +857,16 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: IS_IPAD ? 40 : 20,
-    paddingTop: IS_SMALL_PHONE ? 5 : IS_IPAD ? 30 : 40,
+    paddingHorizontal: IS_IPAD ? 48 : 20,
+    paddingTop: IS_SMALL_PHONE ? 5 : IS_IPAD ? 36 : 40,
     width: '100%',
-    maxWidth: IS_IPAD ? 600 : undefined,
+    maxWidth: IS_IPAD ? 680 : undefined,
     alignSelf: 'center',
   },
   circleCounter: {
-    width: IS_COMPACT_HEIGHT ? 118 : IS_SMALL_PHONE ? 140 : IS_IPAD ? 230 : IS_16_PRO_SIZE ? 125 : 180,
-    height: IS_COMPACT_HEIGHT ? 118 : IS_SMALL_PHONE ? 140 : IS_IPAD ? 230 : IS_16_PRO_SIZE ? 125 : 180,
-    borderRadius: IS_COMPACT_HEIGHT ? 59 : IS_SMALL_PHONE ? 70 : IS_IPAD ? 115 : IS_16_PRO_SIZE ? 63 : 90,
+    width: IS_COMPACT_HEIGHT ? 118 : IS_SMALL_PHONE ? 140 : IS_IPAD ? 260 : IS_16_PRO_SIZE ? 125 : 180,
+    height: IS_COMPACT_HEIGHT ? 118 : IS_SMALL_PHONE ? 140 : IS_IPAD ? 260 : IS_16_PRO_SIZE ? 125 : 180,
+    borderRadius: IS_COMPACT_HEIGHT ? 59 : IS_SMALL_PHONE ? 70 : IS_IPAD ? 130 : IS_16_PRO_SIZE ? 63 : 90,
     marginTop: IS_SMALL_PHONE ? 8 : IS_IPAD ? 16 : 20,
     backgroundColor: 'rgba(0, 42, 22, 0.46)',
     borderWidth: 2,
@@ -870,13 +880,13 @@ const styles = StyleSheet.create({
     elevation: 16,
   },
   circleCountText: {
-    fontSize: IS_COMPACT_HEIGHT ? 36 : IS_SMALL_PHONE ? 42 : IS_IPAD ? 72 : IS_16_PRO_SIZE ? 38 : 56,
+    fontSize: IS_COMPACT_HEIGHT ? 36 : IS_SMALL_PHONE ? 42 : IS_IPAD ? 80 : IS_16_PRO_SIZE ? 38 : 56,
     fontWeight: '900',
     color: '#FFD700',
     fontFamily: Fonts.secondary,
   },
   circleTargetText: {
-    fontSize: IS_COMPACT_HEIGHT ? 10 : IS_SMALL_PHONE ? 11 : IS_IPAD ? 16 : IS_16_PRO_SIZE ? 10 : 14,
+    fontSize: IS_COMPACT_HEIGHT ? 10 : IS_SMALL_PHONE ? 11 : IS_IPAD ? 18 : IS_16_PRO_SIZE ? 10 : 14,
     fontWeight: '600',
     color: 'rgba(255, 255, 255, 0.7)',
     marginTop: 4,

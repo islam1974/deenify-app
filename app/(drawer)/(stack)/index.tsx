@@ -6,6 +6,7 @@ import { useLocation } from '@/contexts/LocationContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { Hadith, hadiths } from '@/data/hadithData';
 import { PrayerTimesService } from '@/services/PrayerTimesService';
+import QuranService from '@/services/QuranService';
 import { getRamadanStartGregorian, getTargetRamadanYear } from '@/services/RamadanService';
 import { DrawerActions, useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -25,14 +26,19 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const IS_IPAD = false; // Set true when deploying on iPad
-const IS_SMALL_PHONE = SCREEN_WIDTH < 400;
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const IS_IPAD = Platform.OS === 'ios' && (Platform.isPad === true || SCREEN_WIDTH >= 768);
+const IS_IPAD_MINI = IS_IPAD && Math.min(SCREEN_WIDTH, SCREEN_HEIGHT) <= 800;
+const IS_IPAD_11 = IS_IPAD && Math.min(SCREEN_WIDTH, SCREEN_HEIGHT) <= 900 && !IS_IPAD_MINI;
+const IS_SMALL_PHONE = !IS_IPAD && SCREEN_WIDTH < 400;
 const IS_LARGE_PHONE = !IS_IPAD && SCREEN_WIDTH >= 414;
-const IS_PRO_MAX = SCREEN_WIDTH >= 430;
-const CARD_SIZE = IS_IPAD 
-  ? Math.min((SCREEN_WIDTH - 120) / 3, 240) // iPad: 3 columns, larger cards
-  : Math.min((SCREEN_WIDTH - 80) / 2, 175); // Phone: 2 columns (same for large/Pro Max to avoid layout shift)
+const IS_PRO_MAX = !IS_IPAD && SCREEN_WIDTH >= 430;
+// Phone: ensure 2 cards + gap fit within (SCREEN_WIDTH - quickActions padding - grid padding)
+const PHONE_PADDING = IS_SMALL_PHONE ? 20 + 20 : 20 + 40; // quickActions 10*2 + grid horizontal
+const PHONE_GAP = IS_SMALL_PHONE ? 22 : 28;
+const CARD_SIZE = IS_IPAD
+  ? Math.min((SCREEN_WIDTH - 120) / 3, 240) // iPad: 3 columns, 240px max
+  : Math.min((SCREEN_WIDTH - PHONE_PADDING - PHONE_GAP) / 2, 175); // Phone: 2 columns, fit without stacking
 
 interface QuickAction {
   title: string;
@@ -479,12 +485,9 @@ function LanyardCard() {
           </View>
 
           {daysUntilRamadan !== null && (
-            <LinearGradient
-              colors={['rgba(35, 20, 65, 0.55)', 'rgba(25, 12, 50, 0.65)']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.ramadanCountdown}
-            >
+            Platform.OS === 'android' ? (
+            <View style={[styles.ramadanCountdown, styles.ramadanCountdownAndroid]}>
+              <View style={styles.ramadanCountdownInner}>
               {(FORCE_RAMADAN_PREVIEW || (daysUntilRamadan === 0 && getRamadanDay() !== null)) ? (
                 <View style={styles.ramadanInProgress}>
                   <Text style={styles.ramadanDayHeader}>
@@ -548,6 +551,88 @@ function LanyardCard() {
                   ) : null}
                 </>
               )}
+              </View>
+              <TouchableOpacity
+                style={styles.ramadanTrackerLink}
+                onPress={() => router.push('/ramadan-tracker')}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.ramadanTrackerLinkText, { color: '#059669' }]}>Ramadan Tracker</Text>
+                <IconSymbol name="chevron.right" size={18} color="#059669" />
+              </TouchableOpacity>
+            </View>
+            ) : (
+            <LinearGradient
+              colors={['rgba(35, 18, 75, 0.7)', 'rgba(25, 10, 55, 0.8)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.ramadanCountdown}
+            >
+              <View style={styles.ramadanCountdownInner}>
+              {(FORCE_RAMADAN_PREVIEW || (daysUntilRamadan === 0 && getRamadanDay() !== null)) ? (
+                <View style={styles.ramadanInProgress}>
+                  <Text style={styles.ramadanDayHeader}>
+                    Ramadan Day {FORCE_RAMADAN_PREVIEW ? 7 : getRamadanDay()}
+                  </Text>
+                  <View style={styles.ramadanTimesBlock}>
+                    <View style={styles.ramadanTimeRow}>
+                      <Text style={styles.ramadanTimeLabel}>Iftar</Text>
+                      <Text style={styles.ramadanTimeValue}>
+                        {prayerTimes.find((p) => p.name === 'Maghrib')?.time ?? '--'}
+                      </Text>
+                    </View>
+                    <View style={styles.ramadanTimeRow}>
+                      <Text style={styles.ramadanTimeLabel}>Suhoor ends</Text>
+                      <Text style={styles.ramadanTimeValue}>
+                        {prayerTimes.find((p) => p.name === 'Fajr')?.time ?? '--'}
+                      </Text>
+                    </View>
+                  </View>
+                  {(() => {
+                    const countdown = getCountdownToIftarOrSuhoor();
+                    const fallback = getUntilIftarString();
+                    if (countdown) {
+                      const { label, hours, minutes, seconds } = countdown;
+                      const pad = (n: number) => String(n).padStart(2, '0');
+                      return (
+                        <View style={styles.ramadanCountdownPill}>
+                          <Text style={styles.ramadanCountdownPillText}>
+                            ⏳ {hours}h {pad(minutes)}m {pad(seconds)}s {label}
+                          </Text>
+                        </View>
+                      );
+                    }
+                    if (fallback) {
+                      return (
+                        <View style={styles.ramadanCountdownPill}>
+                          <Text style={styles.ramadanCountdownPillText}>{fallback}</Text>
+                        </View>
+                      );
+                    }
+                    return null;
+                  })()}
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.ramadanCountdownLabel}>
+                    {daysUntilRamadan === 0 ? 'Ramadan Mubarak!' : 'Days Until Ramadan'}
+                  </Text>
+                  {daysUntilRamadan > 0 ? (
+                    <View style={styles.ramadanCountdownValueContainer}>
+                      <Text style={styles.ramadanCountdownValue}>{daysUntilRamadan}</Text>
+                      <Text style={styles.ramadanCountdownUnits}>days</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.ramadanCountdownSubtitle}>Ramadan has begun</Text>
+                  )}
+                  {ramadanStartDate ? (
+                    <Text style={styles.ramadanStartDate}>
+                      {daysUntilRamadan === 0 ? `Started ${ramadanStartDate}` : `Starts ${ramadanStartDate}`}
+                    </Text>
+                  ) : null}
+                </>
+              )}
+              </View>
               <TouchableOpacity
                 style={styles.ramadanTrackerLink}
                 onPress={() => router.push('/ramadan-tracker')}
@@ -557,6 +642,7 @@ function LanyardCard() {
                 <IconSymbol name="chevron.right" size={18} color="#059669" />
               </TouchableOpacity>
             </LinearGradient>
+            )
           )}
         </View>
         </LinearGradient>
@@ -722,48 +808,48 @@ function AnimatedCircularCard({ action, index, scrollY }: { action: QuickAction;
                 end={{ x: 1, y: 1 }}
                 style={StyleSheet.absoluteFill}
               />
-              <Image 
-                source={require('@/assets/images/prayer-times-icon.png')} 
+              <Image
+                source={require('@/assets/images/prayer-times-icon.png')}
                 style={[styles.prayerTimesCardBackground, { opacity: 0.75 }]}
                 resizeMode="cover"
               />
             </View>
           ) : action.title === 'Qibla Direction' ? (
             <View style={styles.qiblaCardContainer}>
-              <Image 
-                source={require('@/assets/images/Qibla.jpeg')} 
+              <Image
+                source={require('@/assets/images/Qibla.jpeg')}
                 style={styles.qiblaCardBackground}
                 resizeMode="cover"
               />
             </View>
           ) : action.title === 'Quran' ? (
             <View style={styles.quranCardContainer}>
-              <Image 
-                source={require('@/assets/images/Quran.png')} 
+              <Image
+                source={require('@/assets/images/Quran.png')}
                 style={styles.quranCardBackground}
                 resizeMode="cover"
               />
             </View>
           ) : action.title === 'Tasbih Counter' ? (
             <View style={styles.tasbihCardContainer}>
-              <Image 
-                source={require('@/assets/images/Tasbih-icon.png')} 
+              <Image
+                source={require('@/assets/images/Tasbih-icon.png')}
                 style={styles.tasbihCardBackground}
                 resizeMode="cover"
               />
             </View>
           ) : action.title === 'Duas' ? (
             <View style={styles.duasCardContainer}>
-              <Image 
-                source={require('@/assets/images/Duas.png')} 
+              <Image
+                source={require('@/assets/images/Duas.png')}
                 style={styles.duasCardBackground}
                 resizeMode="cover"
               />
             </View>
           ) : action.title === 'Hadith' ? (
             <View style={styles.hadithCardContainer}>
-              <Image 
-                source={require('@/assets/images/Hadith.png')} 
+              <Image
+                source={require('@/assets/images/Hadith.png')}
                 style={styles.hadithCardBackground}
                 resizeMode="cover"
               />
@@ -793,6 +879,33 @@ function HomeScreenContent({ scrollY }: { scrollY: any }) {
   const { theme, isDark } = useTheme();
   const colors = Colors[((theme as 'light' | 'dark') ?? 'light' as 'light' | 'dark') ?? 'light'];
   const router = useRouter();
+  const [passage, setPassage] = useState<{ text: string; reference: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadRandomVerse = async () => {
+      try {
+        const chapterNum = Math.floor(Math.random() * 114) + 1;
+        const chapter = await QuranService.getChapterWithTranslation(chapterNum, 'sahih');
+        if (cancelled || !chapter.verses?.length) return;
+        const verse = chapter.verses[Math.floor(Math.random() * chapter.verses.length)];
+        if (cancelled) return;
+        setPassage({
+          text: verse.translation || verse.text,
+          reference: `Quran ${chapterNum}:${verse.verseNumber}`,
+        });
+      } catch {
+        if (!cancelled) {
+          setPassage({
+            text: 'And whoever relies upon Allah - then He is sufficient for him. Indeed, Allah will accomplish His purpose.',
+            reference: 'Quran 65:3',
+          });
+        }
+      }
+    };
+    loadRandomVerse();
+    return () => { cancelled = true; };
+  }, []);
 
   const quickActions: QuickAction[] = [
     { title: 'Full Prayer Times', icon: 'clock.fill', route: '/prayer-times', color: '#4CAF50' },
@@ -818,10 +931,10 @@ function HomeScreenContent({ scrollY }: { scrollY: any }) {
 
       <View style={[styles.verseContainer, { backgroundColor: 'transparent' }]}>
         <Text style={[styles.verseText, { color: colors.text }]}>
-          "And whoever relies upon Allah - then He is sufficient for him. Indeed, Allah will accomplish His purpose. Allah has already set for everything a [decreed] extent."
+          {passage ? `"${passage.text}"` : '...'}
         </Text>
         <Text style={[styles.verseReference, { color: colors.tint }]}>
-          - Quran 65:3
+          {passage ? `- ${passage.reference}` : ''}
         </Text>
       </View>
     </>
@@ -1032,7 +1145,10 @@ export default function HomeScreen() {
         <View style={[styles.container, { backgroundColor: '#101828' }]}>
           <Reanimated.ScrollView 
             style={{ flex: 1 }}
-            contentContainerStyle={{ paddingBottom: 16, flexGrow: 1 }}
+            contentContainerStyle={[
+              { paddingBottom: 16, flexGrow: 1 },
+              IS_IPAD && { paddingHorizontal: 48, paddingBottom: 32 },
+            ]}
             showsVerticalScrollIndicator={false}
             bounces={true}
             alwaysBounceVertical={true}
@@ -1047,7 +1163,7 @@ export default function HomeScreen() {
         >
           <View style={styles.menuButtonContainer}>
             <View style={[styles.menuIconContainer, { backgroundColor: '#FFFFFF' }]}>
-              <IconSymbol name="list.bullet" size={IS_IPAD ? 32 : 28} color="#2C3E50" />
+              <IconSymbol name="list.bullet" size={IS_IPAD ? 38 : 28} color="#2C3E50" />
             </View>
             <Text style={styles.menuButtonText}>More</Text>
           </View>
@@ -1096,9 +1212,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   quickActions: {
-    padding: IS_IPAD ? 20 : 10,
-    maxWidth: IS_IPAD ? 1000 : undefined,
+    padding: IS_IPAD ? 32 : 10,
+    maxWidth: IS_IPAD ? 900 : undefined,
     alignSelf: IS_IPAD ? 'center' : 'auto',
+    width: IS_IPAD ? '100%' : undefined,
   },
   sectionTitle: {
     fontSize: IS_IPAD ? 28 : IS_LARGE_PHONE ? 22 : 20,
@@ -1110,8 +1227,8 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'center',
     alignItems: 'flex-start',
-    paddingHorizontal: IS_IPAD ? 40 : IS_SMALL_PHONE ? 10 : 20,
-    gap: IS_IPAD ? 30 : IS_SMALL_PHONE ? 15 : 20,
+    paddingHorizontal: IS_IPAD ? 24 : IS_SMALL_PHONE ? 10 : 20,
+    gap: IS_IPAD ? 48 : IS_SMALL_PHONE ? 22 : 28,
   },
   actionCard: {
     width: CARD_SIZE,
@@ -1133,7 +1250,7 @@ const styles = StyleSheet.create({
   },
   cardWithTitle: {
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: IS_IPAD ? 36 : 26,
   },
   cardTitle: {
     fontSize: IS_IPAD ? 20 : IS_SMALL_PHONE ? 14 : IS_LARGE_PHONE ? 18 : 16,
@@ -1352,12 +1469,12 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   lanyardCardWrapper: {
-    marginHorizontal: IS_IPAD ? 40 : 10,
+    marginHorizontal: IS_IPAD ? 40 : 24,
     marginTop: 16,
     marginBottom: 8,
-    maxWidth: IS_IPAD ? 900 : undefined,
+    maxWidth: IS_IPAD ? 1100 : undefined,
     alignSelf: IS_IPAD ? 'center' : 'auto',
-    width: IS_IPAD ? '85%' : undefined,
+    width: IS_IPAD ? '92%' : undefined,
   },
   lanyardCard: {
     borderRadius: 36,
@@ -1384,7 +1501,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   lanyardTitle: {
-    fontSize: IS_IPAD ? 30 : 24,
+    fontSize: IS_IPAD ? 34 : 24,
     fontWeight: '900',
     color: '#FFFFFF',
     marginBottom: IS_IPAD ? 4 : 2,
@@ -1393,7 +1510,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 3,
   },
   lanyardLocation: {
-    fontSize: IS_IPAD ? 20 : 16,
+    fontSize: IS_IPAD ? 24 : 16,
     color: '#FFFFFF',
     fontWeight: '700',
     opacity: 0.9,
@@ -1414,7 +1531,7 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255, 255, 255, 0.3)',
   },
   lanyardTimeLabel: {
-    fontSize: IS_IPAD ? 20 : 16,
+    fontSize: IS_IPAD ? 24 : 16,
     color: '#FFFFFF',
     fontWeight: '800',
     textShadowColor: '#000000',
@@ -1422,7 +1539,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 2,
   },
   lanyardTimeValue: {
-    fontSize: IS_IPAD ? 20 : 16,
+    fontSize: IS_IPAD ? 24 : 16,
     color: '#FFFFFF',
     fontWeight: '900',
     textShadowColor: '#000000',
@@ -1439,13 +1556,13 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   lanyardDateLabel: {
-    fontSize: IS_IPAD ? 18 : 14,
+    fontSize: IS_IPAD ? 22 : 14,
     color: '#FFFFFF',
     fontWeight: '800',
     opacity: 0.9,
   },
   lanyardDateValue: {
-    fontSize: IS_IPAD ? 18 : 14,
+    fontSize: IS_IPAD ? 22 : 14,
     color: '#FFFFFF',
     fontWeight: '700',
     textAlign: 'right',
@@ -1453,7 +1570,7 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   lanyardLoadingText: {
-    fontSize: IS_IPAD ? 20 : 18,
+    fontSize: IS_IPAD ? 24 : 18,
     color: '#FFFFFF',
     fontWeight: '800',
     textAlign: 'center',
@@ -1468,29 +1585,45 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
     alignItems: 'center',
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.35,
     shadowRadius: 12,
     elevation: 12,
   },
+  ramadanCountdownAndroid: {
+    backgroundColor: 'rgba(45, 18, 110, 0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    shadowOpacity: 0.35,
+    elevation: 12,
+  },
+  ramadanCountdownInner: {
+    width: '100%',
+    alignItems: 'center',
+  },
   ramadanCountdownLabel: {
-    fontSize: IS_IPAD ? 20 : 17,
+    fontSize: IS_IPAD ? 24 : 17,
     fontWeight: '800',
     color: '#FFFFFF',
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: 6,
+    textAlign: 'center',
+    width: '100%',
   },
   ramadanInProgress: {
     width: '100%',
     alignItems: 'center',
   },
   ramadanDayHeader: {
-    fontSize: IS_IPAD ? 22 : 19,
+    fontSize: IS_IPAD ? 26 : 19,
     fontWeight: '800',
     color: '#FFFFFF',
     marginBottom: 12,
+    textAlign: 'center',
+    width: '100%',
   },
   ramadanTimesBlock: {
     width: '100%',
@@ -1503,12 +1636,13 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   ramadanTimeLabel: {
-    fontSize: IS_IPAD ? 18 : 16,
+    fontSize: IS_IPAD ? 22 : 16,
     fontWeight: '600',
     color: 'rgba(255, 255, 255, 0.9)',
+    flex: 1,
   },
   ramadanTimeValue: {
-    fontSize: IS_IPAD ? 18 : 16,
+    fontSize: IS_IPAD ? 22 : 16,
     fontWeight: '700',
     color: '#FFFFFF',
   },
@@ -1517,19 +1651,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 28,
+    maxWidth: '100%',
+    alignSelf: 'center',
   },
   ramadanCountdownPillText: {
-    fontSize: IS_IPAD ? 17 : 15,
+    fontSize: IS_IPAD ? 21 : 15,
     fontWeight: '700',
     color: '#FFFFFF',
+    textAlign: 'center',
   },
   ramadanCountdownValueContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     marginBottom: 4,
+    justifyContent: 'center',
   },
   ramadanCountdownValue: {
-    fontSize: IS_IPAD ? 52 : 42,
+    fontSize: IS_IPAD ? 62 : 42,
     fontWeight: '900',
     color: '#FFFFFF',
     marginRight: 6,
@@ -1538,21 +1676,25 @@ const styles = StyleSheet.create({
     textShadowRadius: 4,
   },
   ramadanCountdownUnits: {
-    fontSize: IS_IPAD ? 22 : 18,
+    fontSize: IS_IPAD ? 26 : 18,
     fontWeight: '700',
     color: 'rgba(255, 255, 255, 0.85)',
     marginBottom: IS_IPAD ? 6 : 4,
   },
   ramadanCountdownSubtitle: {
-    fontSize: IS_IPAD ? 20 : 18,
+    fontSize: IS_IPAD ? 24 : 18,
     fontWeight: '800',
     color: '#FFFFFF',
     marginBottom: 4,
+    textAlign: 'center',
+    width: '100%',
   },
   ramadanStartDate: {
-    fontSize: IS_IPAD ? 18 : 16,
+    fontSize: IS_IPAD ? 22 : 16,
     fontWeight: '600',
     color: 'rgba(255, 255, 255, 0.85)',
+    textAlign: 'center',
+    width: '100%',
   },
   ramadanTrackerLink: {
     flexDirection: 'row',
@@ -1565,7 +1707,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   ramadanTrackerLinkText: {
-    fontSize: 16,
+    fontSize: IS_IPAD ? 22 : 16,
     color: 'rgba(255, 255, 255, 0.9)',
     fontWeight: '500',
   },
@@ -1585,7 +1727,7 @@ const styles = StyleSheet.create({
   },
   popupContainer: {
     width: '100%',
-    maxWidth: 400,
+    maxWidth: IS_IPAD ? 480 : 400,
     borderRadius: 20,
     overflow: 'hidden',
     shadowColor: '#000',
@@ -1674,17 +1816,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   menuButton: {
-    paddingTop: 72,
-    paddingLeft: 20,
+    paddingTop: IS_IPAD ? 88 : 72,
+    paddingLeft: IS_IPAD ? 12 : 20,
     paddingBottom: 10,
   },
   menuButtonContainer: {
     alignItems: 'flex-start',
   },
   menuIconContainer: {
-    width: IS_IPAD ? 56 : 48,
-    height: IS_IPAD ? 56 : 48,
-    borderRadius: IS_IPAD ? 28 : 24,
+    width: IS_IPAD ? 64 : 48,
+    height: IS_IPAD ? 64 : 48,
+    borderRadius: IS_IPAD ? 32 : 24,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -1694,9 +1836,9 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   menuButtonText: {
-    marginTop: 4,
-    marginLeft: 5,
-    fontSize: IS_IPAD ? 18 : 16,
+    marginTop: IS_IPAD ? 6 : 4,
+    marginLeft: IS_IPAD ? 6 : 5,
+    fontSize: IS_IPAD ? 22 : 16,
     fontWeight: '600',
     color: '#FFFFFF',
     textShadowColor: 'rgba(0, 0, 0, 0.75)',
@@ -1705,9 +1847,9 @@ const styles = StyleSheet.create({
   },
   bismillahContainer: {
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    marginTop: IS_IPAD ? -140 : IS_SMALL_PHONE ? -80 : IS_LARGE_PHONE ? -160 : -220,
+    paddingHorizontal: IS_IPAD ? 40 : 20,
+    paddingVertical: IS_IPAD_MINI ? 10 : IS_IPAD_11 ? 12 : IS_IPAD ? 16 : 10,
+    marginTop: IS_IPAD_MINI ? -320 : IS_IPAD_11 ? -260 : IS_IPAD ? -180 : IS_SMALL_PHONE ? -80 : IS_LARGE_PHONE ? -160 : -220,
     zIndex: 10,
   },
   bismillahText: {

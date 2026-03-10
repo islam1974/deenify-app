@@ -40,7 +40,7 @@ interface CalendarDay {
 }
 
 const { width } = Dimensions.get('window');
-const IS_IPAD = false; // Set true when deploying on iPad
+const IS_IPAD = Platform.OS === 'ios' && (Platform.isPad === true || width >= 768);
 const IS_SMALL_PHONE = width < 360;
 
 const HijriCalendar = () => {
@@ -721,65 +721,67 @@ const HijriCalendar = () => {
   }
 
   return (
-    <ScrollView style={styles.scrollView}>
+    <ScrollView style={styles.scrollView} contentContainerStyle={IS_IPAD ? styles.scrollContentIpad : undefined}>
+      <View style={styles.containerShadow}>
       <LinearGradient
         colors={gradientColors}
         style={[styles.container]}
       >
       {/* Today's Hijri Date */}
-      <View style={styles.dateSection}>
-        <View style={styles.dateHeader}>
-          <IconSymbol name="calendar" size={20} color={colors.tint} />
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>
+      <View style={[styles.dateSection, IS_IPAD && styles.dateSectionIpad]}>
+        <View style={[styles.dateHeader, IS_IPAD && styles.dateHeaderIpad]}>
+          <IconSymbol name="calendar" size={IS_IPAD ? 28 : 20} color={colors.tint} />
+          <Text style={[styles.sectionTitle, IS_IPAD && styles.sectionTitleIpad, { color: colors.text }]}>
             Today's Hijri Date
           </Text>
         </View>
         
-        <View style={styles.dateContent}>
-          <Text style={[styles.hijriDate, { color: colors.text }]}>
+        <View style={[styles.dateContent, IS_IPAD && styles.dateContentIpad]}>
+          <Text style={[styles.hijriDate, IS_IPAD && styles.hijriDateIpad, { color: colors.text }]}>
             {hijriDate.day} {hijriDate.monthName}
           </Text>
-          <Text style={[styles.hijriYear, { color: colors.secondaryText }]}>
+          <Text style={[styles.hijriYear, IS_IPAD && styles.hijriYearIpad, { color: colors.secondaryText }]}>
             {hijriDate.year} AH
           </Text>
-          <Text style={[styles.hijriEnglish, { color: colors.secondaryText }]}>
+          <Text style={[styles.hijriEnglish, IS_IPAD && styles.hijriEnglishIpad, { color: colors.secondaryText }]}>
             {hijriDate.day} {hijriDate.monthNameEn} {hijriDate.year}
           </Text>
         </View>
       </View>
 
       {/* Calendar Section */}
-      <View style={styles.calendarSection}>
-        <View style={styles.calendarHeader}>
-          <TouchableOpacity onPress={goToPreviousMonth} style={styles.navButton}>
-            <IconSymbol name="chevron.left" size={24} color={colors.text} />
+      <View style={[styles.calendarSection, IS_IPAD && styles.calendarSectionIpad]}>
+        <View style={[styles.calendarHeader, IS_IPAD && styles.calendarHeaderIpad]}>
+          <TouchableOpacity onPress={goToPreviousMonth} style={[styles.navButton, IS_IPAD && styles.navButtonIpad]}>
+            <IconSymbol name="chevron.left" size={IS_IPAD ? 32 : 24} color={colors.text} />
           </TouchableOpacity>
           
-          <Text style={[styles.monthYear, { color: colors.text }]}>
+          <Text style={[styles.monthYear, IS_IPAD && styles.monthYearIpad, { color: colors.text }]}>
             {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
           </Text>
           
-          <TouchableOpacity onPress={goToNextMonth} style={styles.navButton}>
-            <IconSymbol name="chevron.right" size={24} color={colors.text} />
+          <TouchableOpacity onPress={goToNextMonth} style={[styles.navButton, IS_IPAD && styles.navButtonIpad]}>
+            <IconSymbol name="chevron.right" size={IS_IPAD ? 32 : 24} color={colors.text} />
           </TouchableOpacity>
         </View>
 
         {/* Day Headers */}
-        <View style={styles.dayHeaders}>
+        <View style={[styles.dayHeaders, IS_IPAD && styles.dayHeadersIpad]}>
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-            <Text key={day} style={[styles.dayHeader, { color: colors.secondaryText }]}>
+            <Text key={day} style={[styles.dayHeader, IS_IPAD && styles.dayHeaderIpad, { color: colors.secondaryText }]}>
               {day}
             </Text>
           ))}
         </View>
 
         {/* Calendar Grid */}
-        <View style={styles.calendarGrid}>
+        <View style={[styles.calendarGrid, IS_IPAD && styles.calendarGridIpad]}>
           {calendarDays.map((day, index) => (
             <TouchableOpacity
               key={index}
               style={[
                 styles.dayCell,
+                IS_IPAD && styles.dayCellIpad,
                 {
                   backgroundColor: day.isToday ? colors.tint : 'transparent',
                   borderColor: day.isCurrentMonth ? colors.border : 'transparent',
@@ -788,6 +790,7 @@ const HijriCalendar = () => {
             >
               <Text style={[
                 styles.gregorianDay,
+                IS_IPAD && styles.gregorianDayIpad,
                 {
                   color: day.isToday ? '#fff' : day.isCurrentMonth ? colors.text : colors.secondaryText,
                   fontWeight: day.isToday ? 'bold' : 'normal'
@@ -797,9 +800,9 @@ const HijriCalendar = () => {
               </Text>
               <Text style={[
                 styles.hijriDay,
+                IS_IPAD && styles.hijriDayIpad,
                 {
-                  color: day.isToday ? '#fff' : colors.secondaryText,
-                  fontSize: 10
+                  color: day.isToday ? '#fff' : colors.secondaryText
                 }
               ]}>
                 {day.hijriDay}
@@ -813,30 +816,30 @@ const HijriCalendar = () => {
       </View>
 
       {/* List View Section */}
-      <View style={styles.listSection}>
+      <View style={[styles.listSection, IS_IPAD && styles.listSectionIpad]}>
         {renderListView()}
       </View>
 
 
       {/* Today's Events */}
       {todayEvents.length > 0 && (
-        <View style={styles.eventsSection}>
-          <View style={styles.dateHeader}>
-            <IconSymbol name="star.fill" size={20} color="#FFD700" />
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+        <View style={[styles.eventsSection, IS_IPAD && styles.eventsSectionIpad]}>
+          <View style={[styles.dateHeader, IS_IPAD && styles.dateHeaderIpad]}>
+            <IconSymbol name="star.fill" size={IS_IPAD ? 28 : 20} color="#FFD700" />
+            <Text style={[styles.sectionTitle, IS_IPAD && styles.sectionTitleIpad, { color: colors.text }]}>
               Today's Islamic Event
             </Text>
           </View>
           {todayEvents.map((event, index) => (
-            <View key={index} style={[styles.eventItem, { borderLeftColor: colors.tint }]}>
+            <View key={index} style={[styles.eventItem, IS_IPAD && styles.eventItemIpad, { borderLeftColor: colors.tint }]}>
               <View style={styles.eventContent}>
-                <View style={styles.eventHeader}>
-                  <IconSymbol name={event.icon as any} size={16} color={colors.tint} />
-                  <Text style={[styles.eventName, { color: colors.text }]}>
+                <View style={[styles.eventHeader, IS_IPAD && styles.eventHeaderIpad]}>
+                  <IconSymbol name={event.icon as any} size={IS_IPAD ? 24 : 16} color={colors.tint} />
+                  <Text style={[styles.eventName, IS_IPAD && styles.eventNameIpad, { color: colors.text }]}>
                     {event.name}
                   </Text>
                 </View>
-                <Text style={[styles.eventDescription, { color: colors.secondaryText }]}>
+                <Text style={[styles.eventDescription, IS_IPAD && styles.eventDescriptionIpad, { color: colors.secondaryText }]}>
                   {event.description}
                 </Text>
               </View>
@@ -847,10 +850,10 @@ const HijriCalendar = () => {
 
       {/* Upcoming Events */}
       {upcomingEvents.length > 0 && (
-        <View style={styles.eventsSection}>
-          <View style={styles.dateHeader}>
-            <IconSymbol name="clock" size={20} color={colors.tint} />
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+        <View style={[styles.eventsSection, IS_IPAD && styles.eventsSectionIpad]}>
+          <View style={[styles.dateHeader, IS_IPAD && styles.dateHeaderIpad]}>
+            <IconSymbol name="clock" size={IS_IPAD ? 28 : 20} color={colors.tint} />
+            <Text style={[styles.sectionTitle, IS_IPAD && styles.sectionTitleIpad, { color: colors.text }]}>
               Upcoming Events
             </Text>
           </View>
@@ -860,18 +863,18 @@ const HijriCalendar = () => {
             const daysUntil = Math.ceil((eventDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
             
             return (
-              <View key={index} style={[styles.eventItem, { borderLeftColor: colors.tint }]}>
+              <View key={index} style={[styles.eventItem, IS_IPAD && styles.eventItemIpad, { borderLeftColor: colors.tint }]}>
                 <View style={styles.eventContent}>
-                  <View style={styles.eventHeader}>
-                    <IconSymbol name={event.icon as any} size={16} color={colors.secondaryText} />
-                    <Text style={[styles.eventName, { color: colors.text }]}>
+                  <View style={[styles.eventHeader, IS_IPAD && styles.eventHeaderIpad]}>
+                    <IconSymbol name={event.icon as any} size={IS_IPAD ? 24 : 16} color={colors.secondaryText} />
+                    <Text style={[styles.eventName, IS_IPAD && styles.eventNameIpad, { color: colors.text }]}>
                       {event.name}
                     </Text>
                     <Text style={[styles.daysUntil, { color: colors.tint }]}>
                       {daysUntil}d
                     </Text>
                   </View>
-                  <Text style={[styles.eventDate, { color: colors.secondaryText }]}>
+                  <Text style={[styles.eventDate, IS_IPAD && styles.eventDateIpad, { color: colors.secondaryText }]}>
                     {eventDate.toLocaleDateString('en-US', { 
                       month: 'short', 
                       day: 'numeric',
@@ -886,36 +889,37 @@ const HijriCalendar = () => {
       )}
       
       {/* Notifications & Reminders Section */}
-      <View style={styles.notificationsSection}>
-        <View style={styles.notificationsHeader}>
-          <IconSymbol name="bell.fill" size={20} color={colors.tint} />
-          <Text style={[styles.notificationsTitle, { color: colors.text }]}>
+      <View style={[styles.notificationsSection, IS_IPAD && styles.notificationsSectionIpad]}>
+        <View style={[styles.notificationsHeader, IS_IPAD && styles.notificationsHeaderIpad]}>
+          <IconSymbol name="bell.fill" size={IS_IPAD ? 28 : 20} color={colors.tint} />
+          <Text style={[styles.notificationsTitle, IS_IPAD && styles.notificationsTitleIpad, { color: colors.text }]}>
             Reminders & Notifications
           </Text>
         </View>
         
-        <View style={[styles.notificationCard, { backgroundColor: colors.cardBackground }]}>
-          <Text style={[styles.notificationText, { color: colors.secondaryText }]}>
+        <View style={[styles.notificationCard, IS_IPAD && styles.notificationCardIpad, { backgroundColor: colors.cardBackground }]}>
+          <Text style={[styles.notificationText, IS_IPAD && styles.notificationTextIpad, { color: colors.secondaryText }]}>
             💡 Enable notifications to receive reminders for upcoming Islamic events like:
           </Text>
           <View style={styles.notificationList}>
-            <Text style={[styles.notificationItem, { color: colors.text }]}>
+            <Text style={[styles.notificationItem, IS_IPAD && styles.notificationItemIpad, { color: colors.text }]}>
               • "Tomorrow is the Day of Arafah - Sunnah to fast"
             </Text>
-            <Text style={[styles.notificationItem, { color: colors.text }]}>
+            <Text style={[styles.notificationItem, IS_IPAD && styles.notificationItemIpad, { color: colors.text }]}>
               • "Ramadan begins tomorrow - prepare for fasting"
             </Text>
-            <Text style={[styles.notificationItem, { color: colors.text }]}>
+            <Text style={[styles.notificationItem, IS_IPAD && styles.notificationItemIpad, { color: colors.text }]}>
               • "Laylat al-Qadr is tonight - increase worship"
             </Text>
-            <Text style={[styles.notificationItem, { color: colors.text }]}>
+            <Text style={[styles.notificationItem, IS_IPAD && styles.notificationItemIpad, { color: colors.text }]}>
               • "Eid al-Fitr tomorrow - prepare for celebration"
             </Text>
           </View>
           
           <TouchableOpacity 
             style={[
-              styles.enableNotificationsButton, 
+              styles.enableNotificationsButton,
+              IS_IPAD && styles.enableNotificationsButtonIpad,
               { 
                 backgroundColor: notificationsEnabled ? '#4CAF50' : colors.tint,
                 opacity: isRequestingPermission ? 0.6 : 1
@@ -926,10 +930,10 @@ const HijriCalendar = () => {
           >
             <IconSymbol 
               name={notificationsEnabled ? "bell.fill" : "bell"} 
-              size={16} 
+              size={IS_IPAD ? 24 : 16} 
               color="#fff" 
             />
-            <Text style={styles.enableNotificationsText}>
+            <Text style={[styles.enableNotificationsText, IS_IPAD && styles.enableNotificationsTextIpad]}>
               {isRequestingPermission 
                 ? 'Enabling...' 
                 : notificationsEnabled 
@@ -941,6 +945,7 @@ const HijriCalendar = () => {
         </View>
       </View>
       </LinearGradient>
+      </View>
     </ScrollView>
   );
 };
@@ -948,6 +953,19 @@ const HijriCalendar = () => {
 const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
+  },
+  scrollContentIpad: {
+    maxWidth: 900,
+    alignSelf: 'center',
+    width: '100%',
+  },
+  containerShadow: {
+    borderRadius: 32,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 18,
   },
   container: {
     flex: 1,
@@ -961,19 +979,35 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 28,
   },
+  dateSectionIpad: {
+    marginBottom: 28,
+    paddingHorizontal: 24,
+    paddingVertical: 22,
+    borderRadius: 32,
+  },
   dateHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
+  },
+  dateHeaderIpad: {
+    marginBottom: 16,
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
   },
+  sectionTitleIpad: {
+    fontSize: 22,
+    marginLeft: 12,
+  },
   dateContent: {
     alignItems: 'center',
     paddingVertical: 12,
+  },
+  dateContentIpad: {
+    paddingVertical: 16,
   },
   hijriDate: {
     fontSize: 24,
@@ -981,16 +1015,27 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 4,
   },
+  hijriDateIpad: {
+    fontSize: 34,
+    marginBottom: 8,
+  },
   hijriYear: {
     fontSize: 18,
     fontWeight: '500',
     textAlign: 'center',
     marginBottom: 8,
   },
+  hijriYearIpad: {
+    fontSize: 26,
+    marginBottom: 12,
+  },
   hijriEnglish: {
     fontSize: 14,
     textAlign: 'center',
     opacity: 0.8,
+  },
+  hijriEnglishIpad: {
+    fontSize: 20,
   },
   
   // Calendar Styles
@@ -998,9 +1043,17 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     paddingHorizontal: 15,
   },
+  calendarSectionIpad: {
+    marginBottom: 40,
+    paddingHorizontal: 24,
+  },
   listSection: {
     marginBottom: 20,
     paddingHorizontal: 15,
+  },
+  listSectionIpad: {
+    marginBottom: 28,
+    paddingHorizontal: 24,
   },
   calendarHeader: {
     flexDirection: 'row',
@@ -1008,17 +1061,30 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 15,
   },
+  calendarHeaderIpad: {
+    marginBottom: 20,
+  },
   navButton: {
     padding: 8,
     borderRadius: 20,
+  },
+  navButtonIpad: {
+    padding: 12,
+    borderRadius: 24,
   },
   monthYear: {
     fontSize: 18,
     fontWeight: 'bold',
   },
+  monthYearIpad: {
+    fontSize: 26,
+  },
   dayHeaders: {
     flexDirection: 'row',
     marginBottom: 10,
+  },
+  dayHeadersIpad: {
+    marginBottom: 14,
   },
   dayHeader: {
     flex: 1,
@@ -1027,9 +1093,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     paddingVertical: 8,
   },
+  dayHeaderIpad: {
+    fontSize: 16,
+    paddingVertical: 12,
+  },
   calendarGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+  },
+  calendarGridIpad: {
+    gap: 4,
   },
   dayCell: {
     width: '14.28%',
@@ -1042,13 +1115,24 @@ const styles = StyleSheet.create({
     position: 'relative',
     paddingTop: 4,
   },
+  dayCellIpad: {
+    borderRadius: 24,
+    paddingTop: 6,
+  },
   gregorianDay: {
     fontSize: 14,
     fontWeight: '500',
   },
+  gregorianDayIpad: {
+    fontSize: 20,
+  },
   hijriDay: {
     fontSize: 10,
     marginTop: 2,
+  },
+  hijriDayIpad: {
+    fontSize: 14,
+    marginTop: 4,
   },
   todayIndicator: {
     position: 'absolute',
@@ -1140,10 +1224,19 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     paddingHorizontal: 15,
   },
+  eventsSectionIpad: {
+    marginBottom: 24,
+    paddingHorizontal: 24,
+  },
   eventItem: {
     borderLeftWidth: 3,
     paddingLeft: 12,
     marginBottom: 12,
+  },
+  eventItemIpad: {
+    borderLeftWidth: 4,
+    paddingLeft: 18,
+    marginBottom: 18,
   },
   eventContent: {
     flex: 1,
@@ -1153,11 +1246,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 4,
   },
+  eventHeaderIpad: {
+    marginBottom: 8,
+  },
   eventName: {
     fontSize: 15,
     fontWeight: '600',
     marginLeft: 8,
     flex: 1,
+  },
+  eventNameIpad: {
+    fontSize: 22,
+    marginLeft: 12,
   },
   daysUntil: {
     fontSize: 12,
@@ -1172,9 +1272,17 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 4,
   },
+  eventDescriptionIpad: {
+    fontSize: 19,
+    lineHeight: 26,
+    marginBottom: 8,
+  },
   eventDate: {
     fontSize: 12,
     opacity: 0.8,
+  },
+  eventDateIpad: {
+    fontSize: 18,
   },
   loadingText: {
     textAlign: 'center',
@@ -1187,15 +1295,26 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     paddingHorizontal: 15,
   },
+  notificationsSectionIpad: {
+    marginBottom: 32,
+    paddingHorizontal: 24,
+  },
   notificationsHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
   },
+  notificationsHeaderIpad: {
+    marginBottom: 16,
+  },
   notificationsTitle: {
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  notificationsTitleIpad: {
+    fontSize: 22,
+    marginLeft: 12,
   },
   notificationCard: {
     borderRadius: 28,
@@ -1206,10 +1325,19 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+  notificationCardIpad: {
+    borderRadius: 32,
+    padding: 22,
+  },
   notificationText: {
     fontSize: 14,
     marginBottom: 12,
     lineHeight: 20,
+  },
+  notificationTextIpad: {
+    fontSize: 20,
+    marginBottom: 16,
+    lineHeight: 28,
   },
   notificationList: {
     marginBottom: 16,
@@ -1220,6 +1348,11 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     paddingLeft: 4,
   },
+  notificationItemIpad: {
+    fontSize: 18,
+    lineHeight: 24,
+    marginBottom: 8,
+  },
   enableNotificationsButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1228,11 +1361,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 22,
   },
+  enableNotificationsButtonIpad: {
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 28,
+  },
   enableNotificationsText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  enableNotificationsTextIpad: {
+    fontSize: 20,
+    marginLeft: 12,
   },
 });
 

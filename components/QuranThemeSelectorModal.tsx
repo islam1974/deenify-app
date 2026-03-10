@@ -1,23 +1,25 @@
 import PaperTextureOverlay from '@/components/PaperTextureOverlay';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import {
-  QuranThemeId,
-  QURAN_THEMES,
+    QURAN_THEMES,
+    QuranThemeId,
 } from '@/contexts/QuranThemeContext';
 import * as Haptics from 'expo-haptics';
 import React, { useEffect, useRef } from 'react';
 import {
-  Animated,
-  Dimensions,
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
+    Animated,
+    Dimensions,
+    Modal,
+    Platform,
+    Pressable,
+    StyleSheet,
+    Text,
+    View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const IS_IPAD = Platform.isPad;
 const IS_PRO_MAX = SCREEN_WIDTH >= 430;
 const RUB_EL_HIZB = '\u06DE';
 
@@ -38,10 +40,12 @@ function ThemePreviewCard({
   themeId,
   isSelected,
   onSelect,
+  isIpad,
 }: {
   themeId: QuranThemeId;
   isSelected: boolean;
   onSelect: () => void;
+  isIpad: boolean;
 }) {
   const theme = QURAN_THEMES[themeId];
   const accent = theme.verseBadgeGold;
@@ -54,6 +58,7 @@ function ThemePreviewCard({
       }}
       style={({ pressed }) => [
         styles.previewCard,
+        isIpad && styles.previewCardIpad,
         {
           backgroundColor: theme.card,
           borderColor: isSelected ? accent : 'rgba(200, 164, 77, 0.12)',
@@ -73,6 +78,7 @@ function ThemePreviewCard({
       <View
         style={[
           styles.previewSwatch,
+          isIpad && styles.previewSwatchIpad,
           {
             backgroundColor: theme.background,
             borderRadius: 8,
@@ -84,10 +90,10 @@ function ThemePreviewCard({
         {themeId === 'parchment-classic' && (
           <PaperTextureOverlay fillParent />
         )}
-        <View style={[styles.previewAyahRow, { zIndex: 1 }]}>
-          <Text style={[styles.previewBadge, { color: accent }]}>{RUB_EL_HIZB}</Text>
+        <View style={[styles.previewAyahRow, isIpad && styles.previewAyahRowIpad, { zIndex: 1 }]}>
+          <Text style={[styles.previewBadge, isIpad && styles.previewBadgeIpad, { color: accent }]}>{RUB_EL_HIZB}</Text>
           <Text
-            style={[styles.previewArabic, { color: theme.arabicText }]}
+            style={[styles.previewArabic, isIpad && styles.previewArabicIpad, { color: theme.arabicText }]}
             numberOfLines={1}
           >
             ٱلۡحَمۡدُ لِلَّهِ
@@ -95,16 +101,16 @@ function ThemePreviewCard({
         </View>
       </View>
 
-      <Text style={[styles.themeName, { color: theme.label }]}>
+      <Text style={[styles.themeName, isIpad && styles.themeNameIpad, { color: theme.label }]}>
         {theme.name}
       </Text>
-      <Text style={[styles.themeDesc, { color: theme.translationText }]}>
+      <Text style={[styles.themeDesc, isIpad && styles.themeDescIpad, { color: theme.translationText }]}>
         {THEME_DESCRIPTIONS[themeId]}
       </Text>
 
       {isSelected && (
-        <View style={styles.checkMark}>
-          <IconSymbol name="checkmark" size={12} color={accent} />
+        <View style={[styles.checkMark, isIpad && styles.checkMarkIpad]}>
+          <IconSymbol name="checkmark" size={isIpad ? 16 : 12} color={accent} />
         </View>
       )}
     </Pressable>
@@ -157,6 +163,7 @@ export default function QuranThemeSelectorModal({
         <Animated.View
           style={[
             styles.content,
+            IS_IPAD && styles.contentIpad,
             {
               paddingTop: insets.top + 28,
               paddingBottom: insets.bottom + 28,
@@ -183,13 +190,14 @@ export default function QuranThemeSelectorModal({
             </Text>
 
             {/* Theme cards — vertically stacked */}
-            <View style={styles.cards}>
+            <View style={[styles.cards, IS_IPAD && styles.cardsIpad]}>
               {(Object.keys(QURAN_THEMES) as QuranThemeId[]).map((id) => (
                 <ThemePreviewCard
                   key={id}
                   themeId={id}
                   isSelected={themeId === id}
                   onSelect={() => handleSelect(id)}
+                  isIpad={IS_IPAD}
                 />
               ))}
             </View>
@@ -216,6 +224,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     borderWidth: 1,
     borderColor: 'rgba(200, 164, 77, 0.15)',
+  },
+  contentIpad: {
+    maxWidth: 520,
   },
   closeBtn: {
     position: 'absolute',
@@ -255,6 +266,9 @@ const styles = StyleSheet.create({
     gap: 20,
     width: '100%',
   },
+  cardsIpad: {
+    gap: 24,
+  },
   previewCard: {
     width: '100%',
     alignSelf: 'stretch',
@@ -262,25 +276,42 @@ const styles = StyleSheet.create({
     position: 'relative',
     elevation: 0,
   },
+  previewCardIpad: {
+    padding: 24,
+  },
   previewSwatch: {
     height: IS_PRO_MAX ? 60 : 52,
     justifyContent: 'center',
     paddingHorizontal: 12,
     marginBottom: 12,
   },
+  previewSwatchIpad: {
+    height: 76,
+    paddingHorizontal: 16,
+    marginBottom: 14,
+  },
   previewAyahRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
+  previewAyahRowIpad: {
+    gap: 12,
+  },
   previewBadge: {
     fontFamily: 'ScheherazadeNew-Bold',
     fontSize: 22,
+  },
+  previewBadgeIpad: {
+    fontSize: 26,
   },
   previewArabic: {
     fontFamily: 'ScheherazadeNew-Bold',
     fontSize: 18,
     flex: 1,
+  },
+  previewArabicIpad: {
+    fontSize: 22,
   },
   themeName: {
     fontFamily: 'PlayfairDisplay-Regular',
@@ -288,16 +319,28 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     marginBottom: 2,
   },
+  themeNameIpad: {
+    fontSize: 19,
+    marginBottom: 4,
+  },
   themeDesc: {
     fontFamily: 'PlayfairDisplay-Regular',
     fontSize: 13,
     opacity: 0.85,
     lineHeight: 18,
   },
+  themeDescIpad: {
+    fontSize: 15,
+    lineHeight: 21,
+  },
   checkMark: {
     position: 'absolute',
     top: 14,
     right: 14,
     opacity: 0.9,
+  },
+  checkMarkIpad: {
+    top: 18,
+    right: 18,
   },
 });

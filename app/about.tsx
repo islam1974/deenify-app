@@ -201,11 +201,11 @@ export default function AboutScreen() {
           
           <TouchableOpacity
             style={[styles.contactButton, { backgroundColor: colors.background, borderColor: colors.border }]}
-            onPress={() => handleOpenLink('mailto:support@deenify.app')}
+            onPress={() => handleOpenLink('mailto:suhel_islam@yahoo.co.uk')}
           >
             <IconSymbol name="envelope.fill" size={20} color={colors.tint} />
             <Text style={[styles.contactButtonText, { color: colors.text }]}>
-              support@deenify.app
+              suhel_islam@yahoo.co.uk
             </Text>
           </TouchableOpacity>
 

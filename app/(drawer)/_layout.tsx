@@ -6,7 +6,7 @@ import { Dimensions, Platform, Text, TouchableOpacity, View } from 'react-native
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const IS_IPAD = false; // Set true when deploying on iPad
+const IS_IPAD = true; // Set true when deploying on iPad
 
 export default function DrawerLayout() {
   const { theme } = useTheme();
@@ -43,7 +43,7 @@ export default function DrawerLayout() {
                   paddingHorizontal: IS_IPAD ? 18 : 16,
                   paddingVertical: IS_IPAD ? 10 : 8,
                   marginLeft: IS_IPAD ? -6 : -4,
-                  marginTop: IS_IPAD ? -4 : -2,
+                  marginTop: IS_IPAD ? 28 : -2,
                   borderRadius: 999,
                   gap: 12,
                   backgroundColor: 'transparent',
@@ -88,13 +88,42 @@ export default function DrawerLayout() {
         />
         <Drawer.Screen
           name="settings"
-          options={{
+          options={({ navigation }) => ({
             title: 'Settings',
+            headerTitle: IS_IPAD ? '' : 'Settings',
+            headerStyle: { backgroundColor: '#101828' },
+            headerBackground: () => <View style={{ flex: 1, backgroundColor: '#101828' }} />,
+            headerShadowVisible: false,
+            headerLeft: () => (
+              <View style={{ backgroundColor: '#101828', paddingRight: 16 }}>
+                <TouchableOpacity
+                  onPress={() => navigation.goBack()}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    paddingHorizontal: IS_IPAD ? 18 : 16,
+                    paddingVertical: IS_IPAD ? 10 : 8,
+                    marginLeft: IS_IPAD ? -6 : -4,
+                    marginTop: IS_IPAD ? 28 : -2,
+                    borderRadius: 999,
+                    gap: 12,
+                    backgroundColor: 'transparent',
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <IconSymbol name="chevron.left.circle.fill" size={IS_IPAD ? 44 : 36} color="#FFFFFF" />
+                  <Text style={{ fontSize: IS_IPAD ? 22 : 18, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.3 }}>
+                    Back
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ),
             drawerLabel: 'Settings',
             drawerIcon: ({ color }) => (
               <IconSymbol name="gear" size={IS_IPAD ? 36 : 30} color={color} />
             ),
-          }}
+          })}
         />
         <Drawer.Screen
           name="ramadan-tracker"

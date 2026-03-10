@@ -118,7 +118,7 @@ cp PRIVACY_POLICY.md docs/index.md
 In App Store Connect → Your App → App Information:
 
 1. **Privacy Policy URL**: Add your hosted privacy policy URL
-2. **Support URL**: Add support email/URL (e.g., `mailto:support@deenify.app`)
+2. **Support URL**: Add support email/URL (e.g., `mailto:suhel_islam@yahoo.co.uk`)
 3. **Marketing URL**: (Optional) Your website
 4. **Category**: 
    - Primary: Lifestyle or Reference

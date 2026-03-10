@@ -25,6 +25,7 @@ interface DropdownProps {
   triggerTextColor?: string;
   triggerPlaceholderColor?: string;
   triggerChevronColor?: string;
+  triggerFontSize?: number;
   /** Optional: override list/modal colors to match parent (e.g. Quran paper theme) */
   listBackgroundColor?: string;
   listBorderColor?: string;
@@ -45,6 +46,7 @@ export default function Dropdown({
   triggerTextColor,
   triggerPlaceholderColor,
   triggerChevronColor,
+  triggerFontSize,
   listBackgroundColor,
   listBorderColor,
   itemTextColor,
@@ -170,7 +172,8 @@ export default function Dropdown({
             color: selectedItem 
               ? (triggerTextColor ?? colors.text) 
               : (triggerPlaceholderColor ?? colors.icon),
-            fontFamily: selectedItem ? Fonts.roboto : Fonts.secondary
+            fontFamily: selectedItem ? Fonts.roboto : Fonts.secondary,
+            ...(triggerFontSize != null && { fontSize: triggerFontSize })
           }
         ]}>
           {selectedItem ? selectedItem.label : placeholder}
