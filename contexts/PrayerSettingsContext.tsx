@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export type CalculationMethod = 
-  | 'MWL' // Muslim World League
+  | 'UK'   // UK (London) - MWL with London mosque adjustments
+  | 'MWL'  // Muslim World League
   | 'ISNA' // Islamic Society of North America
   | 'UmmAlQura' // Umm Al-Qura University, Makkah
   | 'Karachi' // University of Islamic Sciences, Karachi
@@ -126,6 +127,12 @@ export function PrayerSettingsProvider({ children }: { children: ReactNode }) {
 
   const getCalculationMethodInfo = (method: CalculationMethod) => {
     const methods = {
+      UK: {
+        name: 'UK (London)',
+        description: 'Adjusted for London mosque times',
+        fajrAngle: 18,
+        ishaAngle: 17,
+      },
       MWL: {
         name: 'Muslim World League',
         description: 'Fajr: 18°, Isha: 17°',

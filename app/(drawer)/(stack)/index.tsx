@@ -3,6 +3,7 @@ import LocationWrapper from '@/components/LocationWrapper';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors, Fonts } from '@/constants/theme';
 import { useLocation } from '@/contexts/LocationContext';
+import { usePrayerSettings } from '@/contexts/PrayerSettingsContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { Hadith, hadiths } from '@/data/hadithData';
 import { PrayerTimesService } from '@/services/PrayerTimesService';
@@ -55,6 +56,7 @@ function LanyardCard() {
   const { theme } = useTheme();
   const colors = Colors[((theme as 'light' | 'dark') ?? 'light' as 'light' | 'dark') ?? 'light'];
   const { location, locationEnabled } = useLocation();
+  const { settings: prayerSettings } = usePrayerSettings();
   const [prayerTimes, setPrayerTimes] = useState<any[]>([]);
   const [locationTimezone, setLocationTimezone] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
@@ -75,12 +77,18 @@ function LanyardCard() {
   useEffect(() => {
     fetchPrayerTimes();
     fetchHijriDate();
-  }, [location, locationEnabled]);
+  }, [location, locationEnabled, prayerSettings.calculationMethod, prayerSettings.madhab]);
 
   const fetchPrayerTimes = async () => {
     if (!location && !locationEnabled) {
       try {
-        const defaultPrayerTimes = await PrayerTimesService.getPrayerTimesByCity('New York', 'USA');
+        const defaultPrayerTimes = await PrayerTimesService.getPrayerTimesByCity(
+          'New York',
+          'USA',
+          undefined,
+          prayerSettings.calculationMethod,
+          prayerSettings.madhab
+        );
         setPrayerTimes(defaultPrayerTimes);
       } catch (err) {
         console.error('Error loading default prayer times:', err);
@@ -96,12 +104,21 @@ function LanyardCard() {
       if (location.latitude !== 0 && location.longitude !== 0) {
         const result = await PrayerTimesService.getPrayerTimesWithTimezone(
           location.latitude,
-          location.longitude
+          location.longitude,
+          undefined,
+          prayerSettings.calculationMethod,
+          prayerSettings.madhab
         );
         times = result.times;
         setLocationTimezone(result.timezone || '');
       } else {
-        times = await PrayerTimesService.getPrayerTimesByCity(location.city, location.country);
+        times = await PrayerTimesService.getPrayerTimesByCity(
+          location.city,
+          location.country,
+          undefined,
+          prayerSettings.calculationMethod,
+          prayerSettings.madhab
+        );
         setLocationTimezone('');
       }
       setPrayerTimes(times);
@@ -484,7 +501,7 @@ function LanyardCard() {
             </View>
           </View>
 
-          {daysUntilRamadan !== null && (
+          {false && daysUntilRamadan !== null && (
             Platform.OS === 'android' ? (
             <View style={[styles.ramadanCountdown, styles.ramadanCountdownAndroid]}>
               <View style={styles.ramadanCountdownInner}>

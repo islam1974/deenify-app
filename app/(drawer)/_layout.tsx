@@ -134,6 +134,7 @@ export default function DrawerLayout() {
               <IconSymbol name="moon.fill" size={IS_IPAD ? 36 : 30} color={color} />
             ),
             headerShown: false,
+            drawerItemStyle: { display: 'none' },
           }}
         />
       </Drawer>

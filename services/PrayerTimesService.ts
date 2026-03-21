@@ -61,30 +61,60 @@ export class PrayerTimesService {
   private static cacheCoords: CachedPrayerTimes | null = null;
   private static cacheCity: CachedPrayerTimes | null = null;
 
-  private static getCachedCoords(lat: number, lon: number, dateStr: string): PrayerTime[] | null {
-    const key = `${lat.toFixed(2)},${lon.toFixed(2)},${dateStr}`;
+  private static getCachedCoords(
+    lat: number,
+    lon: number,
+    dateStr: string,
+    calculationMethod: string,
+    madhab: string
+  ): PrayerTime[] | null {
+    const key = `${lat.toFixed(2)},${lon.toFixed(2)},${dateStr},${calculationMethod},${madhab}`;
     const c = PrayerTimesService.cacheCoords;
     if (c && c.key === key && Date.now() - c.timestamp < CACHE_TTL_MS) return c.times;
     return null;
   }
 
-  private static setCacheCoords(lat: number, lon: number, dateStr: string, times: PrayerTime[]) {
+  private static setCacheCoords(
+    lat: number,
+    lon: number,
+    dateStr: string,
+    calculationMethod: string,
+    madhab: string,
+    times: PrayerTime[]
+  ) {
     PrayerTimesService.cacheCoords = {
       times,
       timestamp: Date.now(),
-      key: `${lat.toFixed(2)},${lon.toFixed(2)},${dateStr}`,
+      key: `${lat.toFixed(2)},${lon.toFixed(2)},${dateStr},${calculationMethod},${madhab}`,
     };
   }
 
-  private static getCachedCity(city: string, country: string, dateStr: string): PrayerTime[] | null {
-    const key = `${city},${country},${dateStr}`;
+  private static getCachedCity(
+    city: string,
+    country: string,
+    dateStr: string,
+    calculationMethod: string,
+    madhab: string
+  ): PrayerTime[] | null {
+    const key = `${city},${country},${dateStr},${calculationMethod},${madhab}`;
     const c = PrayerTimesService.cacheCity;
     if (c && c.key === key && Date.now() - c.timestamp < CACHE_TTL_MS) return c.times;
     return null;
   }
 
-  private static setCacheCity(city: string, country: string, dateStr: string, times: PrayerTime[]) {
-    PrayerTimesService.cacheCity = { times, timestamp: Date.now(), key: `${city},${country},${dateStr}` };
+  private static setCacheCity(
+    city: string,
+    country: string,
+    dateStr: string,
+    calculationMethod: string,
+    madhab: string,
+    times: PrayerTime[]
+  ) {
+    PrayerTimesService.cacheCity = {
+      times,
+      timestamp: Date.now(),
+      key: `${city},${country},${dateStr},${calculationMethod},${madhab}`,
+    };
   }
 
   private static formatTime24to12(time24: string): string {
@@ -118,6 +148,12 @@ export class PrayerTimesService {
     return times;
   }
 
+  private static addMinutes(d: Date, minutes: number): Date {
+    const out = new Date(d);
+    out.setMinutes(out.getMinutes() + minutes);
+    return out;
+  }
+
   private static calculateWithAdhan(
     latitude: number,
     longitude: number,
@@ -126,25 +162,32 @@ export class PrayerTimesService {
     madhab: string
   ): PrayerTime[] {
     const coords = new Coordinates(latitude, longitude);
+    const useUK = calculationMethod === 'UK';
+    const baseMethod = useUK ? 'MWL' : calculationMethod;
     const params =
-      calculationMethod === 'Karachi'
+      baseMethod === 'Karachi'
         ? CalculationMethod.Karachi()
-        : calculationMethod === 'ISNA'
+        : baseMethod === 'ISNA'
           ? CalculationMethod.NorthAmerica()
-          : calculationMethod === 'Egyptian'
+          : baseMethod === 'Egyptian'
             ? CalculationMethod.Egyptian()
             : CalculationMethod.MuslimWorldLeague();
     if (madhab === 'Hanafi') params.madhab = Madhab.Hanafi;
     const pt = new AdhanPrayerTimes(coords, date, params);
     const format = (d: Date) =>
       d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    const fajr = useUK ? this.addMinutes(pt.fajr, 15) : pt.fajr;
+    const dhuhr = useUK ? this.addMinutes(pt.dhuhr, 5) : pt.dhuhr;
+    const asr = useUK ? this.addMinutes(pt.asr, 1) : pt.asr;
+    const maghrib = useUK ? this.addMinutes(pt.maghrib, 2) : pt.maghrib;
+    const isha = useUK ? this.addMinutes(pt.isha, -26) : pt.isha;
     const times: PrayerTime[] = [
-      { name: 'Fajr', time: format(pt.fajr), arabic: 'الفجر', next: false },
+      { name: 'Fajr', time: format(fajr), arabic: 'الفجر', next: false },
       { name: 'Sunrise', time: format(pt.sunrise), arabic: 'الشروق', next: false },
-      { name: 'Dhuhr', time: format(pt.dhuhr), arabic: 'الظهر', next: false },
-      { name: 'Asr', time: format(pt.asr), arabic: 'العصر', next: false },
-      { name: 'Maghrib', time: format(pt.maghrib), arabic: 'المغرب', next: false },
-      { name: 'Isha', time: format(pt.isha), arabic: 'العشاء', next: false },
+      { name: 'Dhuhr', time: format(dhuhr), arabic: 'الظهر', next: false },
+      { name: 'Asr', time: format(asr), arabic: 'العصر', next: false },
+      { name: 'Maghrib', time: format(maghrib), arabic: 'المغرب', next: false },
+      { name: 'Isha', time: format(isha), arabic: 'العشاء', next: false },
     ];
     const nextIdx = this.getNextPrayerIndex(times, new Date());
     if (nextIdx >= 0 && nextIdx < times.length) times[nextIdx].next = true;
@@ -178,8 +221,12 @@ export class PrayerTimesService {
     throw lastError || new Error('Request failed');
   }
 
+  // UK (London) tune: Fajr +15, Dhuhr +5, Asr +1, Maghrib +2, Isha -26 (minutes)
+  private static readonly UK_TUNE = '15,15,0,5,1,2,0,-26,0';
+
   // Calculation method mappings for Aladhan API
   private static readonly CALCULATION_METHODS = {
+    UK: 3,         // UK (London) - MWL base with tune
     MWL: 3,        // Muslim World League
     ISNA: 2,       // Islamic Society of North America
     UmmAlQura: 4,  // Umm Al-Qura University, Makkah
@@ -223,7 +270,7 @@ export class PrayerTimesService {
     const currentDate = date || new Date();
     const dateString = currentDate.toISOString().split('T')[0];
 
-    const cached = this.getCachedCoords(latitude, longitude, dateString);
+    const cached = this.getCachedCoords(latitude, longitude, dateString, calculationMethod, madhab);
     if (cached) return cached;
 
     if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
@@ -234,6 +281,7 @@ export class PrayerTimesService {
     let url = `${this.API_BASE_URL}/timings/${dateString}?latitude=${latitude}&longitude=${longitude}&method=${methodId}`;
     if (madhab === 'Hanafi') url += '&school=1';
     else url += '&school=0';
+    if (calculationMethod === 'UK') url += `&tune=${this.UK_TUNE}`;
 
     try {
       let data: PrayerTimesResponse;
@@ -243,7 +291,7 @@ export class PrayerTimesService {
         console.warn('Aladhan API failed, trying UmmahAPI:', aladhanErr?.message);
         try {
           const fallbackTimes = await this.fetchFromUmmahAPI(latitude, longitude, madhab);
-          this.setCacheCoords(latitude, longitude, dateString, fallbackTimes);
+          this.setCacheCoords(latitude, longitude, dateString, calculationMethod, madhab, fallbackTimes);
           console.log('✅ Prayer times from UmmahAPI (fallback)');
           return fallbackTimes;
         } catch (ummahErr) {
@@ -255,7 +303,7 @@ export class PrayerTimesService {
             calculationMethod,
             madhab
           );
-          this.setCacheCoords(latitude, longitude, dateString, offlineTimes);
+          this.setCacheCoords(latitude, longitude, dateString, calculationMethod, madhab, offlineTimes);
           console.log('✅ Prayer times from Adhan (offline fallback)');
           return offlineTimes;
         }
@@ -326,7 +374,7 @@ export class PrayerTimesService {
         this.logDSTStatus();
       }
 
-      this.setCacheCoords(latitude, longitude, dateString, prayerTimes);
+      this.setCacheCoords(latitude, longitude, dateString, calculationMethod, madhab, prayerTimes);
       return prayerTimes;
     } catch (error: any) {
       console.error('Error fetching prayer times:', error);
@@ -353,13 +401,14 @@ export class PrayerTimesService {
     const currentDate = date || new Date();
     const dateString = currentDate.toISOString().split('T')[0];
 
-    const cached = this.getCachedCity(city, country, dateString);
+    const cached = this.getCachedCity(city, country, dateString, calculationMethod, madhab);
     if (cached) return cached;
 
     const methodId = this.CALCULATION_METHODS[calculationMethod as keyof typeof this.CALCULATION_METHODS] || 3;
     let url = `${this.API_BASE_URL}/timingsByCity/${dateString}?city=${encodeURIComponent(city)}&country=${encodeURIComponent(country)}&method=${methodId}`;
     if (madhab === 'Hanafi') url += '&school=1';
     else url += '&school=0';
+    if (calculationMethod === 'UK') url += `&tune=${this.UK_TUNE}`;
 
     const CITY_COORDS: Record<string, [number, number]> = {
       'London,United Kingdom': [51.5074, -0.1278],
@@ -453,7 +502,7 @@ export class PrayerTimesService {
         this.logDSTStatus();
       }
 
-      this.setCacheCity(city, country, dateString, prayerTimes);
+      this.setCacheCity(city, country, dateString, calculationMethod, madhab, prayerTimes);
       return prayerTimes;
     } catch (error: any) {
       console.error('Error fetching prayer times by city:', error);

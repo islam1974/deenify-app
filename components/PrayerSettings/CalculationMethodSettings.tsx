@@ -18,6 +18,7 @@ export default function CalculationMethodSettings() {
   const [modalVisible, setModalVisible] = useState(false);
 
   const calculationMethods: CalculationMethod[] = [
+    'UK',
     'MWL',
     'ISNA',
     'UmmAlQura',
